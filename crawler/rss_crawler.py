@@ -7,23 +7,64 @@ rss_crawler.py - RSS 订阅抓取工具
 
 依赖：feedparser, openai, python-dateutil
 """
+import os
+import configparser
 import feedparser
 from datetime import datetime, timezone
 from dateutil import parser as date_parser
 from common import organize_data, DAYS_LOOKBACK
 
+# ================= 配置加载 =================
+# 加载配置文件 (config.ini，位于项目根目录)
+config = configparser.ConfigParser()
+config.optionxform = str  # 保留 key 的大小写
+config.read(os.path.join(os.path.dirname(__file__), '..', 'config.ini'), encoding='utf-8')
+
+def load_weixin_accounts_from_config():
+    """
+    从配置文件加载微信公众号列表
+    
+    配置格式：显示名称 = RSS地址
+    
+    返回：
+        dict: {显示名称: RSS地址}
+    """
+    weixin_accounts = {}
+    
+    if config.has_section('weixin_accounts'):
+        for display_name in config.options('weixin_accounts'):
+            rss_url = config.get('weixin_accounts', display_name).strip()
+            if rss_url:
+                weixin_accounts[display_name] = rss_url
+    
+    return weixin_accounts
+
+def load_x_accounts_from_config():
+    """
+    从配置文件加载 X (Twitter) 账户列表
+    
+    配置格式：显示名称 = 账户ID
+    
+    返回：
+        dict: {显示名称: RSS地址}
+    """
+    x_accounts = {}
+    rsshub_base_url = config.get('rsshub', 'base_url', fallback='http://127.0.0.1:1200')
+    
+    if config.has_section('x_accounts'):
+        for display_name in config.options('x_accounts'):
+            account_id = config.get('x_accounts', display_name).strip()
+            if account_id:
+                x_accounts[display_name] = f"{rsshub_base_url}/twitter/user/{account_id}"
+    
+    return x_accounts
+
 # ================= 配置区域 =================
 # 设置 RSSHub 的订阅源 (按来源类型分组)
 # 提示：X (Twitter) 和 YouTube 的路由可以在 https://docs.rsshub.app/ 找到
 rss_sources = {
-    "weixin": {
-        "腾讯技术工程": "https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml",
-    },
-    "X": {
-        # 注意：X 可能需要自建 RSSHub 服务或配置 Cookie 才能稳定抓取
-        "databricks": "http://127.0.0.1:1200/twitter/user/databricks",
-        "andrejkarpathy": "http://127.0.0.1:1200/twitter/user/karpathy",
-    },
+    "weixin": load_weixin_accounts_from_config(),  # 从配置文件读取微信公众号
+    "X": load_x_accounts_from_config(),  # 从配置文件读取 X 账户
     "YouTube": {
         # "GoogleAI": "https://rsshub.app/youtube/channel/xxx",
     },
@@ -86,7 +127,7 @@ def fetch_recent_posts(rss_url, days, source_type="未知"):
 
 # ================= 主程序入口 =================
 if __name__ == "__main__":
-    final_report = "# 🌍 RSS 情报周报 (Automated)\n\n"
+    final_report = "# 🌍 Data&AI 情报周报 (Automated RSS Crawler)\n\n"
     
     for category, sources in rss_sources.items():
         if not sources:  # 跳过空分类

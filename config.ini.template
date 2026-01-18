@@ -1,0 +1,23 @@
+[llm]
+# LLM API 配置
+
+api_key = xxxxx
+base_url = https://yyyyy
+model = deepseek-reasoner
+
+[rsshub]
+# RSSHub 服务地址 (用于 X/Twitter 等需要自建服务的源)
+base_url = http://127.0.0.1:zzzz
+
+[weixin_accounts]
+# 微信公众号列表
+# 格式：显示名称 = RSS地址
+腾讯技术工程 = https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml
+
+[x_accounts]
+# X (Twitter) 账户列表
+# 格式：显示名称 = 账户ID
+cowork creator = felixrieseberg
+MLflow = MLflow
+anyscale co-founder = robertnishihara  
+ray = raydistributed
