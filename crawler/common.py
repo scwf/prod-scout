@@ -7,7 +7,7 @@ from datetime import datetime
 from openai import OpenAI
 
 # 时间范围配置,爬取最近多少天的内容
-DAYS_LOOKBACK = 3
+DAYS_LOOKBACK = 2
 
 
 def log(message):

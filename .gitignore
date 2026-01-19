@@ -2,6 +2,9 @@
 *.env
 *.ini
 
+# 本地运行脚本
+*.ps1
+
 # Python
 __pycache__/
 *.py[cod]
