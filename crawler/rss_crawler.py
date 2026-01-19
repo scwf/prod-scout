@@ -88,6 +88,12 @@ def fetch_recent_posts(rss_url, days, source_type="未知"):
     log(f"正在抓取 [{source_type}]: {rss_url} ...")
     try:
         feed = feedparser.parse(rss_url)
+        
+        # 检查 RSS 解析是否出错
+        if feed.bozo and not feed.entries:
+            log(f"RSS 解析失败: {feed.bozo_exception}")
+            return []
+        
         recent_posts = []
         
         # 获取当前时间 (带时区感知，默认为 UTC 以便比较)
