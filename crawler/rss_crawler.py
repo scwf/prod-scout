@@ -8,6 +8,7 @@ rss_crawler.py - RSS 订阅抓取工具
 依赖：feedparser, openai, python-dateutil
 """
 import os
+import json
 import configparser
 import feedparser
 from datetime import datetime, timezone
@@ -93,7 +94,7 @@ rss_sources = {
 # ===========================================
 
 
-def fetch_recent_posts(rss_url, days, source_type="未知", name=""):
+def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=True):
     """
     抓取 RSS 并筛选指定天数内的内容
     
@@ -102,6 +103,7 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name=""):
         days: 抓取最近多少天的内容
         source_type: 来源类型（微信公众号、X (Twitter)、YouTube、博客/新闻等）
         name: 源名称
+        save_raw: 是否保存原始数据为 JSON 备份文件
     """
     log(f"正在抓取 [{source_type}] {name}: {rss_url} ...")
     try:
@@ -142,6 +144,17 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name=""):
                     "source_type": source_type,  # 来源类型
                     "content": content  # 保留原始内容
                 })
+        
+        # 保存原始数据为 JSON 备份（用于回溯和问题定位）
+        if save_raw and recent_posts:
+            raw_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw')
+            os.makedirs(raw_dir, exist_ok=True)
+            # 使用安全的文件名：source_type + name + 时间戳
+            safe_name = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in name)
+            raw_filename = f"{source_type}_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            raw_path = os.path.join(raw_dir, raw_filename)
+            with open(raw_path, 'w', encoding='utf-8') as f:
+                json.dump(recent_posts, f, ensure_ascii=False, indent=2)
                 
         return recent_posts
     except Exception as e:
@@ -170,7 +183,6 @@ if __name__ == "__main__":
         final_report += "---\n\n"
     
     # 保存报告为 Markdown 文件
-    import os
     output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
     os.makedirs(output_dir, exist_ok=True)
     
