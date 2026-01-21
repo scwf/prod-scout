@@ -26,9 +26,49 @@ crawl-nova/
 
 ## 🚀 快速开始
 
+### 0. 配置 Python 环境（使用 uv）
+
+推荐使用 [uv](https://github.com/astral-sh/uv) 来管理 Python 环境，它比传统的 pip/venv 更快更简单。
+
+#### 安装 uv
+
+**Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**macOS / Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+#### 创建项目虚拟环境
+
+```bash
+# 进入项目目录
+cd crawl-nova
+
+# 创建虚拟环境（自动下载并安装 Python）
+uv venv
+
+# 激活虚拟环境
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# Windows CMD:
+.venv\Scripts\activate.bat
+# macOS / Linux:
+source .venv/bin/activate
+```
+
+> 💡 **提示**：uv 会自动检测并下载合适的 Python 版本，无需手动安装 Python。如需指定版本，可使用 `uv venv --python 3.12`
+
 ### 1. 安装依赖
 
 ```bash
+# 使用 uv 安装依赖（推荐，速度更快）
+uv pip install feedparser openai python-dateutil beautifulsoup4 selenium webdriver-manager
+
+# 或使用传统 pip
 pip install feedparser openai python-dateutil beautifulsoup4 selenium webdriver-manager
 ```
 
