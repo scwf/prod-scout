@@ -3,6 +3,7 @@ common.py - 公共配置和工具函数
 """
 import os
 import json
+import time
 import configparser
 from datetime import datetime
 from openai import OpenAI
@@ -30,9 +31,15 @@ client = OpenAI(
 )
 
 
-def organize_single_post(post, source_name):
+def organize_single_post(post, source_name, max_retries=3, retry_delay=3):
     """
     调用 LLM 对单篇文章进行标准化整理，返回 JSON 结构化数据
+    
+    参数:
+        post: dict - 文章数据
+        source_name: str - 来源名称
+        max_retries: int - 最大重试次数 (默认 3)
+        retry_delay: int - 重试间隔秒数 (默认 3)
     
     返回:
         dict: 包含 date, event, key_info, link, detail, category, domain, source_name 字段
@@ -75,22 +82,52 @@ EXAMPLE JSON OUTPUT:
 内容: {content}
 """
 
-    response = client.chat.completions.create(
-        model=config.get('llm', 'model'),
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant for data organization. Output only valid JSON, no extra text."},
-            {"role": "user", "content": prompt}
-        ],
-        response_format={'type': 'json_object'}
-    )
+    # 带重试机制的 API 调用
+    result_text = None
+    finish_reason = None
     
-    result_text = response.choices[0].message.content.strip()
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.chat.completions.create(
+                model=config.get('llm', 'model'),
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant for data organization. Output only valid JSON, no extra text."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={'type': 'json_object'}
+            )
+            
+            # 获取响应内容和完成原因
+            result_text = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            
+            # 处理 None 或空字符串
+            if not result_text or not result_text.strip():
+                if attempt < max_retries:
+                    log(f"    LLM 返回空响应 (finish_reason: {finish_reason})，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                    continue
+                log(f"    LLM 返回空响应 (finish_reason: {finish_reason})，已重试 {max_retries} 次，跳过")
+                return None
+            
+            # 成功获取响应，跳出重试循环
+            result_text = result_text.strip()
+            break
+            
+        except Exception as e:
+            if attempt < max_retries:
+                log(f"    API 调用失败: {e}，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
+                time.sleep(retry_delay)
+                continue
+            # 最后一次重试也失败，抛出异常
+            raise
     
     # 解析 JSON 响应
     try:
         result = json.loads(result_text)
     except json.JSONDecodeError as e:
         log(f"    JSON 解析失败: {e}")
+        log(f"    原始响应内容: {result_text[:200]}..." if len(result_text) > 200 else f"    原始响应内容: {result_text}")
         return None
     
     # 检查是否为跳过标记
