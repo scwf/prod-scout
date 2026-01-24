@@ -14,7 +14,7 @@ import configparser
 import feedparser
 from datetime import datetime, timezone
 from dateutil import parser as date_parser
-from common import organize_data, DAYS_LOOKBACK, log
+from common import organize_data, posts_to_markdown_table, group_posts_by_domain, DAYS_LOOKBACK, log
 
 # ================= 配置加载 =================
 # 加载配置文件 (config.ini，位于项目根目录)
@@ -166,40 +166,119 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=Tr
 # ================= 主程序入口 =================
 if __name__ == "__main__":
     start_time = time.time()
-    final_report = "# 🌍 Data&AI 情报周报 (Automated RSS Crawler)\n\n"
+    
+    # 收集所有整理后的文章
+    all_organized_posts = []
     
     for category, sources in rss_sources.items():
         if not sources:  # 跳过空分类
             continue
         
-        final_report += f"## 📂 {category}\n\n"
+        log(f"📂 处理分类: {category}")
         
         for name, url in sources.items():
             posts = fetch_recent_posts(url, DAYS_LOOKBACK, source_type=category, name=name)
             log(f" -> 发现 {len(posts)} 条相关内容，正在整理...")
             
-            organized_content = organize_data(posts, name)
+            # organize_data 现在返回 list[dict]
+            organized_posts = organize_data(posts, name)
+            all_organized_posts.extend(organized_posts)
             
-            final_report += f"### {name}\n{organized_content}\n\n"
-        
-        final_report += "---\n\n"
+            log(f" -> 整理完成，有效内容 {len(organized_posts)} 条")
     
-    # 保存报告为 Markdown 文件
+    # 按领域分组
+    log(f"\n📊 共收集 {len(all_organized_posts)} 条有效内容，按领域分组...")
+    grouped_posts = group_posts_by_domain(all_organized_posts)
+    
+    # 准备输出目录
     output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
     os.makedirs(output_dir, exist_ok=True)
     
-    report_filename = f"Data&AI_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-    report_path = os.path.join(output_dir, report_filename)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    saved_files = []
     
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write(final_report)
+    # 为每个领域生成单独的报告文件
+    for domain, posts in grouped_posts.items():
+        if not posts:
+            continue
+        
+        # 生成该领域的 Markdown 报告
+        domain_report = f"# 📰 Data&AI 情报周报 - {domain}\n\n"
+        domain_report += f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        domain_report += f"**内容数量**: {len(posts)} 条\n\n"
+        domain_report += "---\n\n"
+        
+        # 按来源分组显示
+        posts_by_source = {}
+        for post in posts:
+            source = post.get('source_name', '未知来源')
+            if source not in posts_by_source:
+                posts_by_source[source] = []
+            posts_by_source[source].append(post)
+        
+        for source_name, source_posts in posts_by_source.items():
+            domain_report += posts_to_markdown_table(source_posts, title=source_name)
+            domain_report += "\n\n"
+        
+        # 生成安全的文件名（替换特殊字符）
+        safe_domain = "".join(c if c.isalnum() or c in ('-', '_', '（', '）') else '_' for c in domain)
+        report_filename = f"Data&AI_report_{safe_domain}_{timestamp}.md"
+        report_path = os.path.join(output_dir, report_filename)
+        
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(domain_report)
+        
+        saved_files.append((domain, report_path, len(posts)))
+        log(f"✅ 领域 [{domain}] 报告已保存: {report_filename} ({len(posts)} 条)")
     
-    log(f"报告已保存至: {report_path}")
+    # 同时生成一份汇总报告（包含所有领域）
+    combined_report = "# 📰 Data&AI 情报周报 (汇总)\n\n"
+    combined_report += f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    combined_report += f"**总内容数量**: {len(all_organized_posts)} 条\n\n"
+    combined_report += "---\n\n"
     
-    # 打印最终报告
-    print("\n" + "="*30 + " 最终报告 " + "="*30 + "\n")
+    for domain, posts in grouped_posts.items():
+        if not posts:
+            continue
+        combined_report += f"## 📂 {domain}\n\n"
+        
+        # 按来源分组显示
+        posts_by_source = {}
+        for post in posts:
+            source = post.get('source_name', '未知来源')
+            if source not in posts_by_source:
+                posts_by_source[source] = []
+            posts_by_source[source].append(post)
+        
+        for source_name, source_posts in posts_by_source.items():
+            combined_report += posts_to_markdown_table(source_posts, title=source_name)
+            combined_report += "\n\n"
+        
+        combined_report += "---\n\n"
+    
+    combined_filename = f"Data&AI_report_汇总_{timestamp}.md"
+    combined_path = os.path.join(output_dir, combined_filename)
+    
+    with open(combined_path, 'w', encoding='utf-8') as f:
+        f.write(combined_report)
+    
+    log(f"✅ 汇总报告已保存: {combined_filename}")
+    
+    # 打印执行结果摘要
+    print("\n" + "="*50)
+    print("📊 执行结果摘要")
+    print("="*50)
+    print(f"总共处理: {len(all_organized_posts)} 条有效内容")
+    print(f"领域分布:")
+    for domain, path, count in saved_files:
+        print(f"  - {domain}: {count} 条")
+    print(f"\n生成文件:")
+    for domain, path, count in saved_files:
+        print(f"  - {os.path.basename(path)}")
+    print(f"  - {combined_filename} (汇总)")
     
     # 打印时间开销
     elapsed_time = time.time() - start_time
-    print(f"\n{'='*30} 执行完成 {'='*30}")
-    print(f"总耗时: {elapsed_time:.2f} 秒")
+    print(f"\n{'='*50}")
+    print(f"✅ 执行完成，总耗时: {elapsed_time:.2f} 秒")
+    print("="*50)
