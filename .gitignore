@@ -14,8 +14,10 @@ venv/
 
 # 数据输出目录
 data/
+output/
 
 # IDE
 .idea/
 .vscode/
 *.swp
+.claude/

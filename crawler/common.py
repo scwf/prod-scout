@@ -2,14 +2,21 @@
 common.py - 公共配置和工具函数
 """
 import os
+import sys
 import json
 import time
 import configparser
 from datetime import datetime
 from openai import OpenAI
 
+# Fix encoding issue on Windows console
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach(), errors='replace')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach(), errors='replace')
+
 # 时间范围配置,爬取最近多少天的内容
-DAYS_LOOKBACK = 2
+DAYS_LOOKBACK = 5
 
 # 批次清单文件名
 MANIFEST_FILENAME = "latest_batch.json"
