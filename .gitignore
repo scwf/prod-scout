@@ -15,6 +15,7 @@ venv/
 # 数据输出目录
 data/
 output/
+logs/
 
 # IDE
 .idea/
