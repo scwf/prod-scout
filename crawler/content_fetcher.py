@@ -17,7 +17,6 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from common import log
 
-
 @dataclass
 class EmbeddedContent:
     """嵌入内容数据结构"""
@@ -26,6 +25,12 @@ class EmbeddedContent:
     title: str = ''
     content: str = ''
     metadata: Dict = field(default_factory=dict)
+
+
+def _shorten_url(url: str, length: int = 60) -> str:
+    """Helper: Truncate long URLs for logging"""
+    if not url: return ""
+    return url[:length] + "..." if len(url) > length else url
 
 
 class LinkExtractor:
@@ -185,7 +190,7 @@ class YouTubeFetcher:
         """
         video_id = self.extract_video_id(url)
         if not video_id:
-            log(f"    无法从URL提取视频ID: {url}")
+            log(f"    无法从URL提取视频ID: {_shorten_url(url)}")
             return None
         
         transcript = self.fetch_transcript(video_id)
@@ -240,11 +245,11 @@ class BlogFetcher:
                     }
                 )
             
-            log(f"    博客爬取返回空结果: {url}")
+            log(f"    博客爬取返回空结果: {_shorten_url(url)}")
             return None
             
         except Exception as e:
-            log(f"    博客爬取失败 [{url}]: {e}")
+            log(f"    博客爬取失败 [{_shorten_url(url)}]: {e}")
             return None
 
 
@@ -281,22 +286,22 @@ class ContentFetcher:
         # 处理YouTube链接
         for url in youtube_links:
             try:
-                log(f"    正在获取YouTube内容: {url}")
+                log(f"    正在获取YouTube内容: {_shorten_url(url)}")
                 content = self.youtube_fetcher.fetch(url)
                 if content:
                     results.append(content)
             except Exception as e:
-                log(f"    YouTube内容获取失败 [{url}]: {e}")
+                log(f"    YouTube内容获取失败 [{_shorten_url(url)}]: {e}")
         
         # 处理博客链接
         for url in blog_links:
             try:
-                log(f"    正在获取博客内容: {url}")
+                log(f"    正在获取博客内容: {_shorten_url(url)}")
                 content = self.blog_fetcher.fetch(url)
                 if content:
                     results.append(content)
             except Exception as e:
-                log(f"    博客内容获取失败 [{url}]: {e}")
+                log(f"    博客内容获取失败 [{_shorten_url(url)}]: {e}")
         
         # 合并所有外部资源链接（博客、YouTube、媒体）
         all_urls = blog_links + youtube_links + media_urls
