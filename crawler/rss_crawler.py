@@ -15,12 +15,13 @@ import feedparser
 from datetime import datetime, timezone
 from dateutil import parser as date_parser
 from common import organize_data, posts_to_markdown_table, group_posts_by_domain, save_batch_manifest, DAYS_LOOKBACK, log
+from content_fetcher import ContentFetcher, YouTubeFetcher
 
 # ================= 配置加载 =================
 # 加载配置文件 (config.ini，位于项目根目录)
 config = configparser.ConfigParser()
 config.optionxform = str  # 保留 key 的大小写
-config.read(os.path.join(os.path.dirname(__file__), '..', 'config.ini'), encoding='utf-8')
+config.read(os.path.join(os.path.dirname(__file__), '..', 'config-test.ini'), encoding='utf-8')
 
 def load_weixin_accounts_from_config():
     """
@@ -92,7 +93,65 @@ rss_sources = {
         # "OpenAI_Blog": "https://rsshub.app/openai/blog",
     },
 }
+
+# ================= 内容增强模块 =================
+# 用于从X推文中提取嵌入链接内容，以及从YouTube视频中提取字幕
+content_fetcher = ContentFetcher()
+youtube_fetcher = YouTubeFetcher()
 # ===========================================
+
+
+# ================= 辅助函数 =================
+
+def _parse_date(entry):
+    """解析并标准化时间"""
+    if not hasattr(entry, 'published'): return None
+    dt = date_parser.parse(entry.published)
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+def _enrich_x_content(content, title):
+    """提取 X 推文的嵌入内容"""
+    try:
+        embedded, extra_urls = content_fetcher.fetch_embedded_content(content)
+        extra_content = ""
+        if embedded:
+            parts = [f"[{'博客' if i.content_type == 'blog' else '视频字幕'}] {i.content}" 
+                     for i in embedded if i.content]
+            extra_content = "\n\n".join(parts)
+        
+        if embedded or extra_urls:
+            t = (title or "无标题")
+            t = t[:30] + "..." if len(t) > 30 else t
+            log(f"    [{t}] 嵌入: {len(embedded)}, 外链: {len(extra_urls)}")
+        return extra_content, extra_urls
+    except Exception as e:
+        log(f"    X内容提取失败: {e}")
+        return "", []
+
+def _enrich_youtube_content(link):
+    """提取 YouTube 字幕"""
+    try:
+        yt = youtube_fetcher.fetch(link)
+        if yt and yt.content:
+            log(f"    提取到字幕: {len(yt.content)} 字符")
+            return yt.content
+    except Exception as e:
+        log(f"    字幕提取失败: {e}")
+    return ""
+
+def _save_raw_backup(posts, source_type, name):
+    """保存原始数据备份"""
+    if not posts: return
+    try:
+        raw_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw')
+        os.makedirs(raw_dir, exist_ok=True)
+        safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in name)
+        filename = f"{source_type}_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        with open(os.path.join(raw_dir, filename), 'w', encoding='utf-8') as f:
+            json.dump(posts, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log(f"备份失败: {e}")
 
 
 def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=True):
@@ -121,41 +180,37 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=Tr
         now = datetime.now(timezone.utc)
         
         for entry in feed.entries:
-            # 解析发布时间
-            if hasattr(entry, 'published'):
-                post_date = date_parser.parse(entry.published)
-            else:
-                log(f"没有时间戳: {entry}")
-                continue # 没有时间戳跳过
+            # 1. 时间检查
+            post_date = _parse_date(entry)
+            if not post_date or (now - post_date).days > days:
+                continue
 
-            # 确保 post_date 有时区信息，如果没有则设为 UTC
-            if post_date.tzinfo is None:
-                post_date = post_date.replace(tzinfo=timezone.utc)
-            
-            # 计算时间差
-            if (now - post_date).days <= days:
-                # 清洗数据，提取标题、链接和摘要
-                content = entry.get('content', '') or entry.get('description', '')
-                
-                recent_posts.append({
-                    "title": entry.title,
-                    "date": post_date.strftime("%Y-%m-%d"),
-                    "link": entry.link,
-                    "rss_url": rss_url,
-                    "source_type": source_type,  # 来源类型
-                    "content": content  # 保留原始内容
-                })
+            # 2. 基础内容提取
+            content = entry.get('content', '') or entry.get('description', '')
+            extra_content, extra_urls = '', []
+
+            log(f"    标题: {entry.title}")
+
+            # 3. 内容增强 (X/YouTube)
+            if source_type == "X":
+                extra_content, extra_urls = _enrich_x_content(content, entry.title)
+            elif source_type == "YouTube":
+                extra_content = _enrich_youtube_content(entry.link)
+
+            recent_posts.append({
+                "title": entry.title,
+                "date": post_date.strftime("%Y-%m-%d"),
+                "link": entry.link,
+                "rss_url": rss_url,
+                "source_type": source_type,
+                "content": content,
+                "extra_content": extra_content,
+                "extra_urls": extra_urls
+            })
         
-        # 保存原始数据为 JSON 备份（用于回溯和问题定位）
-        if save_raw and recent_posts:
-            raw_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw')
-            os.makedirs(raw_dir, exist_ok=True)
-            # 使用安全的文件名：source_type + name + 时间戳
-            safe_name = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in name)
-            raw_filename = f"{source_type}_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            raw_path = os.path.join(raw_dir, raw_filename)
-            with open(raw_path, 'w', encoding='utf-8') as f:
-                json.dump(recent_posts, f, ensure_ascii=False, indent=2)
+        # 保存备份
+        if save_raw:
+            _save_raw_backup(recent_posts, source_type, name)
                 
         return recent_posts
     except Exception as e:
@@ -178,7 +233,7 @@ if __name__ == "__main__":
         
         for name, url in sources.items():
             posts = fetch_recent_posts(url, DAYS_LOOKBACK, source_type=category, name=name)
-            log(f" -> 发现 {len(posts)} 条相关内容，正在整理...")
+            log(f" -> 发现 {len(posts)} 条相关内容，使用LLM进行整理...")
             
             # organize_data 现在返回 list[dict]
             organized_posts = organize_data(posts, name)
@@ -187,7 +242,7 @@ if __name__ == "__main__":
             log(f" -> 整理完成，有效内容 {len(organized_posts)} 条")
     
     # 按领域分组
-    log(f"\n📊 共收集 {len(all_organized_posts)} 条有效内容，按领域分组...")
+    log(f"\n📊 整理完，共 {len(all_organized_posts)} 条有效内容，按领域分组...")
     grouped_posts = group_posts_by_domain(all_organized_posts)
     
     # 准备输出目录
@@ -233,45 +288,11 @@ if __name__ == "__main__":
         domain_report_files[domain] = report_filename  # 记录到清单
         log(f"✅ 领域 [{domain}] 报告已保存: {report_filename} ({len(posts)} 条)")
     
-    # 同时生成一份汇总报告（包含所有领域）
-    combined_report = "# 📰 Data&AI 情报周报 (汇总)\n\n"
-    combined_report += f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    combined_report += f"**总内容数量**: {len(all_organized_posts)} 条\n\n"
-    combined_report += "---\n\n"
-    
-    for domain, posts in grouped_posts.items():
-        if not posts:
-            continue
-        combined_report += f"## 📂 {domain}\n\n"
-        
-        # 按来源分组显示
-        posts_by_source = {}
-        for post in posts:
-            source = post.get('source_name', '未知来源')
-            if source not in posts_by_source:
-                posts_by_source[source] = []
-            posts_by_source[source].append(post)
-        
-        for source_name, source_posts in posts_by_source.items():
-            combined_report += posts_to_markdown_table(source_posts, title=source_name)
-            combined_report += "\n\n"
-        
-        combined_report += "---\n\n"
-    
-    combined_filename = f"Data&AI_report_汇总_{timestamp}.md"
-    combined_path = os.path.join(output_dir, combined_filename)
-    
-    with open(combined_path, 'w', encoding='utf-8') as f:
-        f.write(combined_report)
-    
-    log(f"✅ 汇总报告已保存: {combined_filename}")
-    
     # 保存批次清单文件
     save_batch_manifest(
         output_dir=output_dir,
         batch_id=timestamp,
         domain_reports=domain_report_files,
-        summary_report=combined_filename,
         stats={
             "total_posts": len(all_organized_posts),
             "domain_count": len(domain_report_files)
@@ -289,7 +310,6 @@ if __name__ == "__main__":
     print(f"\n生成文件:")
     for domain, path, count in saved_files:
         print(f"  - {os.path.basename(path)}")
-    print(f"  - {combined_filename} (汇总)")
     
     # 打印时间开销
     elapsed_time = time.time() - start_time

@@ -5,11 +5,12 @@ import os
 import json
 import time
 import configparser
+from urllib.parse import urlparse
 from datetime import datetime
 from openai import OpenAI
 
 # 时间范围配置,爬取最近多少天的内容
-DAYS_LOOKBACK = 5
+DAYS_LOOKBACK = 1
 
 # 批次清单文件名
 MANIFEST_FILENAME = "latest_batch.json"
@@ -80,6 +81,7 @@ EXAMPLE JSON OUTPUT:
 原文链接: {post['link']}
 来源类型: {post['source_type']}
 内容: {content}
+补充内容: {post.get('extra_content', '')}
 """
 
     # 带重试机制的 API 调用
@@ -136,6 +138,10 @@ EXAMPLE JSON OUTPUT:
     
     # 添加来源名称
     result['source_name'] = source_name
+    
+    # 添加 extra_content 和 extra_urls（直接从原始数据复制，不需要 LLM 输出）
+    result['extra_content'] = post.get('extra_content', '')
+    result['extra_urls'] = post.get('extra_urls', [])
     
     return result
 
@@ -204,17 +210,27 @@ def posts_to_markdown_table(posts, title=None):
         return ""
     
     # 表头
-    table_header = "| 日期 | 事件 | 关键信息 | 原文链接 | 详细内容 | 事件分类 | 所属领域 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+    table_header = "| 日期 | 事件 | 关键信息 | 原文链接 | 详细内容 | 补充内容 | 外部链接 | 事件分类 | 所属领域 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     
     rows = []
     for post in posts:
+        def get_short_name(u):
+            d = urlparse(u).netloc.replace('www.', '') or "链接"
+            return d[:30] + '...' if len(d) > 30 else d
+        
+        extra_urls_str = '<br>'.join(
+            f'[{get_short_name(url)}]({url})' for url in post.get('extra_urls', [])
+        )
+        
         # 构建表格行（对自由文本字段进行转义处理，防止表格显示异常）
-        row = "| {date} | {event} | {key_info} | [原文链接]({link}) | {detail} | {category} | {domain} |".format(
+        row = "| {date} | {event} | {key_info} | [原文链接]({link}) | {detail} | {extra_content} | {extra_urls} | {category} | {domain} |".format(
             date=post.get('date', ''),  # 固定格式 YYYY-MM-DD
             event=escape_markdown_table(post.get('event', '')),
             key_info=escape_markdown_table(post.get('key_info', '')),
             link=post.get('link', ''),  # URL 不转义
             detail=escape_markdown_table(post.get('detail', '')),
+            extra_content=escape_markdown_table(post.get('extra_content', '')),
+            extra_urls=extra_urls_str,  # 已格式化为链接，不转义
             category=post.get('category', ''),  # 预定义枚举值
             domain=post.get('domain', '')  # 预定义枚举值
         )

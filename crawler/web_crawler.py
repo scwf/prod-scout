@@ -16,7 +16,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-from common import organize_data
+from common import organize_data, log
 
 # ================= 配置区域 =================
 # 设置普通 Web URL 抓取源
@@ -32,7 +32,7 @@ def fetch_web_content(url):
     """
     抓取普通网页内容 (使用 Selenium 以支持动态渲染)
     """
-    print(f"正在抓取网页(Selenium): {url} ...")
+    log(f"    正在抓取网页(Selenium): {url} ...")
     driver = None
     try:
         # 配置无头浏览器
@@ -76,23 +76,23 @@ def fetch_web_content(url):
                 content_text = soup.body.get_text(strip=True)
 
         # DEBUG: 打印抓取到的内容日志
-        print(f"[DEBUG] Title: {title}")
-        print(f"[DEBUG] Content Length: {len(content_text)}")
-        preview = content_text[:200].replace('\n', ' ')
-        print(f"[DEBUG] Content Preview (first 200 chars):\n{preview}...\n")
+        # log(f"[DEBUG] Title: {title}")
+        # log(f"[DEBUG] Content Length: {len(content_text)}")
+        # preview = content_text[:200].replace('\n', ' ')
+        # log(f"[DEBUG] Content Preview (first 200 chars): {preview}...")
 
         # 普通网页通常没有统一的 "发布时间" 元数据，这里使用当前抓取时间作为参考
         pub_date = datetime.now().strftime("%Y-%m-%d")
         
-        return [{
+        return {
             "title": title,
             "date": pub_date,
             "link": url,
-            "content_snippet": content_text[:5000] # Selenium 抓取的内容可能较多，给 5000 字符
-        }]
+            "content": content_text
+        }
     except Exception as e:
-        print(f"网页抓取失败: {e}")
-        return []
+        log(f"    网页抓取失败: {e}")
+        return None
     finally:
         if driver:
             driver.quit()
@@ -104,7 +104,7 @@ def _prepare_page_for_capture(url):
     返回 (driver, last_height)
     注意：调用方负责 driver.quit()
     """
-    print(f"正在准备页面: {url} ...")
+    log(f"    正在准备页面: {url} ...")
     driver = None
     try:
         # 复用 Selenium 配置
@@ -122,7 +122,7 @@ def _prepare_page_for_capture(url):
         driver.get(url)
         
         # 智能寻找滚动容器并触发懒加载
-        print(" -> 正在分析页面结构并加载内容...")
+        log("    -> 正在分析页面结构并加载内容...")
         
         # 1. 模拟滚动 (针对找到的元素)
         # 我们分段滚动，确保触发 Lazy Load
@@ -153,12 +153,12 @@ def _prepare_page_for_capture(url):
             """)
             
             if new_height == last_height and i > 2: # 至少滚两次确认
-                print(f" -> 内容加载完毕，检测到高度: {new_height}px")
+                log(f"    -> 内容加载完毕，检测到高度: {new_height}px")
                 break
             
             last_height = new_height
             if new_height > 30000:
-                print(" -> 页面过长，提前停止")
+                log("    -> 页面过长，提前停止")
                 break
                 
         # 滚回顶部
@@ -166,7 +166,7 @@ def _prepare_page_for_capture(url):
         return driver, last_height
 
     except Exception as e:
-        print(f"页面准备失败: {e}")
+        log(f"页面准备失败: {e}")
         if driver:
             driver.quit()
         return None, 0
@@ -176,7 +176,7 @@ def capture_web_screenshot_png(url, output_path):
     """
     抓取网页长截图 (PNG)
     """
-    print(f"正在生成 PNG: {url} ...")
+    log(f"    正在生成 PNG: {url} ...") 
     driver, last_height = _prepare_page_for_capture(url)
     if not driver:
         return False
@@ -187,14 +187,14 @@ def capture_web_screenshot_png(url, output_path):
         if final_height > 30000: final_height = 30000
         if final_height < 1080: final_height = 1080 # 保底
         
-        print(f"Final Viewport Height: {final_height}px")
+        log(f"Final Viewport Height: {final_height}px")
         driver.set_window_size(1920, final_height)
         time.sleep(2) # 布局重绘等待
         driver.save_screenshot(output_path)
-        print(f"文件已保存至: {output_path}")
+        log(f"文件已保存至: {output_path}")
         return True
     except Exception as e:
-        print(f"PNG 生成失败: {e}")
+        log(f"PNG 生成失败: {e}")
         return False
     finally:
         driver.quit()
@@ -204,7 +204,7 @@ def capture_web_pdf(url, output_path):
     """
     抓取网页并导出为单页长 PDF
     """
-    print(f"正在生成 PDF: {url} ...")
+    log(f"    正在生成 PDF: {url} ...")
     driver, last_height = _prepare_page_for_capture(url)
     if not driver:
         return False
@@ -244,7 +244,7 @@ def capture_web_pdf(url, output_path):
         page_width_in_inches = metrics['width'] / 96.0
         page_height_in_inches = (real_height + 100) / 96.0 
         
-        print(f" -> 生成 PDF 尺寸: {metrics['width']}x{real_height} px (由滚动探测决定)")
+        log(f" -> 生成 PDF 尺寸: {metrics['width']}x{real_height} px (由滚动探测决定)")
 
         params = {
             'landscape': False,
@@ -262,10 +262,10 @@ def capture_web_pdf(url, output_path):
         result = driver.execute_cdp_cmd("Page.printToPDF", params)
         with open(output_path, 'wb') as f:
             f.write(base64.b64decode(result['data']))
-        print(f"文件已保存至: {output_path}")
+        log(f"    文件已保存至: {output_path}")
         return True
     except Exception as e:
-        print(f"PDF 生成失败: {e}")
+        log(f"    PDF 生成失败: {e}")
         return False
     finally:
         driver.quit()
@@ -284,12 +284,12 @@ if __name__ == "__main__":
         capture_web_pdf(url, pdf_path)
 
     for name, url in web_sources.items():
-        posts = fetch_web_content(url)
-        if posts: # 只有抓取成功才处理
-            print(f" -> 成功获取网页内容，正在整理...")
-            organized_content = organize_data(posts, name)
+        post = fetch_web_content(url)
+        if post: # 只有抓取成功才处理
+            log(f"    -> 成功获取网页内容，正在整理...")
+            organized_content = organize_data([post], name)
             final_report += f"## 来源：{name} (Web)\n{organized_content}\n\n---\n\n"
     
     # 打印最终报告
-    print("\n" + "="*30 + " 最终报告 " + "="*30 + "\n")
-    print(final_report)
+    log("\n" + "="*30 + " 最终报告 " + "="*30)
+    log(final_report)
