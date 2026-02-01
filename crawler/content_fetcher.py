@@ -15,7 +15,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
-from common import log
+from common import log, config
 
 @dataclass
 class EmbeddedContent:
@@ -158,9 +158,9 @@ class YouTubeFetcher:
         except Exception:
             return None
     
-    def fetch_transcript(self, video_id: str) -> str:
+    def fetch_transcript(self, video_id: str, context: str = "") -> str:
         """
-        获取视频字幕，并保存 srt/txt 到 rowdata 目录
+        获取视频字幕，并保存 srt/txt 到 raw 目录
         
         使用 video_scribe 模块自动处理（下载+转录）
         
@@ -174,7 +174,7 @@ class YouTubeFetcher:
         import sys
         
         # 确保能导入 video_scribe
-        # 假设 video_scribe 在项目根目录， content_fetcher.py 在 crawler/ 目录
+        # video_scribe 在项目根目录， content_fetcher.py 在 crawler/ 目录
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(current_dir)
         if project_root not in sys.path:
@@ -183,8 +183,8 @@ class YouTubeFetcher:
         try:
             from video_scribe.core import process_video
             
-            # 构造输出目录: data/rowdata/{video_id}/
-            output_dir = os.path.join(project_root, 'data', 'rowdata', video_id)
+            # 构造输出目录: data/raw/{video_id}/
+            output_dir = os.path.join(project_root, 'data', 'raw', video_id)
             os.makedirs(output_dir, exist_ok=True)
             
             video_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -192,6 +192,8 @@ class YouTubeFetcher:
             
             # 调用 video_scribe 处理
             # process_video 会自动保存 .srt, .txt, .json 到 output_dir
+            from video_scribe.core import process_video, optimize_subtitle
+            
             asr_data = process_video(
                 video_url_or_path=video_url,
                 output_dir=output_dir,
@@ -199,8 +201,33 @@ class YouTubeFetcher:
                 language=None  # 自动检测
             )
             
-            # 返回纯文本内容
-            return asr_data.to_txt()
+            # --- LLM 字幕优化 ---
+            # --- LLM 字幕优化 ---
+            log(f"    开始优化字幕 [ID: {video_id}]...")
+            api_key = config.get('llm', 'api_key')
+            base_url = config.get('llm', 'base_url')
+            model = config.get('llm', 'model', fallback='deepseek-reasoner')
+            
+            # 使用视频标题/上下文作为背景信息
+            custom_prompt = ""
+            if context:
+                custom_prompt = f"视频背景信息: {context}\n请利用此信息来优化字幕。"
+
+            optimized_data = optimize_subtitle(
+                subtitle_data=asr_data,
+                model=model,
+                api_key=api_key,
+                base_url=base_url,
+                custom_prompt=custom_prompt
+            )
+            
+            # 保存优化后的字幕
+            save_base = os.path.join(output_dir, f"{video_id}_optimized")
+            optimized_data.save(save_base + ".srt")
+            optimized_data.save(save_base + ".txt")
+            
+            # 返回优化后的文本
+            return optimized_data.to_txt()
             
         except Exception as e:
             log(f"    视频转录失败 [ID: {video_id}]: {e}")
@@ -208,7 +235,7 @@ class YouTubeFetcher:
             traceback.print_exc()
             return ''
     
-    def fetch(self, url: str) -> Optional[EmbeddedContent]:
+    def fetch(self, url: str, context: str = "") -> Optional[EmbeddedContent]:
         """
         获取YouTube视频的完整信息
         
@@ -223,7 +250,7 @@ class YouTubeFetcher:
             log(f"    无法从URL提取视频ID: {_shorten_url(url)}")
             return None
         
-        transcript = self.fetch_transcript(video_id)
+        transcript = self.fetch_transcript(video_id, context=context)
         
         return EmbeddedContent(
             url=url,
@@ -338,14 +365,15 @@ class ContentFetcher:
         
         return results, all_urls
     
-    def fetch_youtube_transcript(self, url: str) -> Optional[EmbeddedContent]:
+    def fetch_youtube_transcript(self, url: str, context: str = "") -> Optional[EmbeddedContent]:
         """
         直接获取YouTube视频字幕（用于YouTube RSS源）
         
         参数:
             url: YouTube视频URL
+            context: 视频标题/上下文（可选，用于辅助字幕优化）
         
         返回:
             EmbeddedContent对象，如果获取失败则返回None
         """
-        return self.youtube_fetcher.fetch(url)
+        return self.youtube_fetcher.fetch(url, context=context)

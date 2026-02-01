@@ -128,10 +128,18 @@ def _enrich_x_content(content, title):
         log(f"    X内容提取失败: {e}")
         return "", []
 
-def _enrich_youtube_content(link):
-    """提取 YouTube 字幕"""
+def _enrich_youtube_content(link, title, context=""):
+    """提取 YouTube 字幕
+    
+    参数:
+        link: 视频链接
+        title: 视频标题
+        context: 上下文（通常是RSS摘要/描述）
+    """
     try:
-        yt = youtube_fetcher.fetch(link)
+        # 传递 title 和 context 到 fetch，context 用作补充信息
+        full_context = f"{title}\n{context}" if context else title
+        yt = youtube_fetcher.fetch(link, context=full_context)
         if yt and yt.content:
             log(f"    提取到字幕: {len(yt.content)} 字符")
             return yt.content
@@ -195,7 +203,7 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=Tr
             if source_type == "X":
                 extra_content, extra_urls = _enrich_x_content(content, entry.title)
             elif source_type == "YouTube":
-                extra_content = _enrich_youtube_content(entry.link)
+                extra_content = _enrich_youtube_content(entry.link, entry.title, content)
 
             recent_posts.append({
                 "title": entry.title,
