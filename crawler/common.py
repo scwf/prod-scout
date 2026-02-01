@@ -16,10 +16,19 @@ DAYS_LOOKBACK = 1
 MANIFEST_FILENAME = "latest_batch.json"
 
 
-def log(message):
-    """带时间戳的日志输出"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{timestamp}] {message}")
+def setup_logger(name: str):
+    import logging
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    return logger
+
+logger = setup_logger("common")
+
 
 # 加载配置文件 (config.ini，位于项目根目录)
 config = configparser.ConfigParser()
@@ -106,10 +115,10 @@ EXAMPLE JSON OUTPUT:
             # 处理 None 或空字符串
             if not result_text or not result_text.strip():
                 if attempt < max_retries:
-                    log(f"    LLM 返回空响应 (finish_reason: {finish_reason})，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
+                    logger.info(f"LLM 返回空响应 (finish_reason: {finish_reason})，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
                     time.sleep(retry_delay)
                     continue
-                log(f"    LLM 返回空响应 (finish_reason: {finish_reason})，已重试 {max_retries} 次，跳过")
+                logger.info(f"LLM 返回空响应 (finish_reason: {finish_reason})，已重试 {max_retries} 次，跳过")
                 return None
             
             # 成功获取响应，跳出重试循环
@@ -118,7 +127,7 @@ EXAMPLE JSON OUTPUT:
             
         except Exception as e:
             if attempt < max_retries:
-                log(f"    API 调用失败: {e}，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
+                logger.info(f"API 调用失败: {e}，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
                 time.sleep(retry_delay)
                 continue
             # 最后一次重试也失败，抛出异常
@@ -128,8 +137,8 @@ EXAMPLE JSON OUTPUT:
     try:
         result = json.loads(result_text)
     except json.JSONDecodeError as e:
-        log(f"    JSON 解析失败: {e}")
-        log(f"    原始响应内容: {result_text[:200]}..." if len(result_text) > 200 else f"    原始响应内容: {result_text}")
+        logger.info(f"JSON 解析失败: {e}")
+        logger.info(f"原始响应内容: {result_text[:200]}..." if len(result_text) > 200 else f"原始响应内容: {result_text}")
         return None
     
     # 检查是否为跳过标记
@@ -160,15 +169,15 @@ def organize_data(posts, source_name):
     # 逐篇处理
     organized_posts = []
     for idx, post in enumerate(posts):
-        log(f"    正在整理 [{source_name}] 第 {idx+1}/{len(posts)} 篇: {post['title'][:30]}...")
+        logger.info(f"正在整理 [{source_name}] 第 {idx+1}/{len(posts)} 篇: {post['title'][:30]}...")
         try:
             result = organize_single_post(post, source_name)
             if not result:
-                log(f"    跳过（LLM返回空或无实质内容）")
+                logger.info(f"跳过（LLM返回空或无实质内容）")
                 continue
             organized_posts.append(result)
         except Exception as e:
-            log(f"    整理失败: {e}")
+            logger.info(f"整理失败: {e}")
             continue
     
     return organized_posts
@@ -297,7 +306,7 @@ def save_batch_manifest(output_dir, batch_id, domain_reports, summary_report=Non
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
     
-    log(f"批次清单已保存: {MANIFEST_FILENAME}")
+    logger.info(f"批次清单已保存: {MANIFEST_FILENAME}")
     return manifest_path
 
 
@@ -322,7 +331,7 @@ def load_batch_manifest(data_dir):
             manifest = json.load(f)
         return manifest
     except (json.JSONDecodeError, IOError) as e:
-        log(f"读取批次清单失败: {e}")
+        logger.info(f"读取批次清单失败: {e}")
         return None
 
 
@@ -345,6 +354,6 @@ def get_domain_report_paths(data_dir, manifest):
         if os.path.exists(full_path):
             result[domain] = full_path
         else:
-            log(f"警告: 领域报告文件不存在: {filename}")
+            logger.info(f"警告: 领域报告文件不存在: {filename}")
     
     return result

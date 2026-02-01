@@ -15,7 +15,9 @@ import re
 from urllib.parse import urlparse, parse_qs
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
-from common import log, config
+from common import config, setup_logger
+
+logger = setup_logger("content_fetcher")
 
 @dataclass
 class EmbeddedContent:
@@ -188,7 +190,7 @@ class YouTubeFetcher:
             os.makedirs(output_dir, exist_ok=True)
             
             video_url = f"https://www.youtube.com/watch?v={video_id}"
-            log(f"    开始转录视频 [ID: {video_id}] -> {output_dir}")
+            logger.info(f"开始转录视频 [ID: {video_id}] -> {output_dir}")
             
             # 调用 video_scribe 处理
             # process_video 会自动保存 .srt, .txt, .json 到 output_dir
@@ -203,7 +205,7 @@ class YouTubeFetcher:
             
             # --- LLM 字幕优化 ---
             # --- LLM 字幕优化 ---
-            log(f"    开始优化字幕 [ID: {video_id}]...")
+            logger.info(f"开始优化字幕 [ID: {video_id}]...")
             api_key = config.get('llm', 'api_key')
             base_url = config.get('llm', 'base_url')
             model = config.get('llm', 'model', fallback='deepseek-reasoner')
@@ -230,7 +232,7 @@ class YouTubeFetcher:
             return optimized_data.to_txt()
             
         except Exception as e:
-            log(f"    视频转录失败 [ID: {video_id}]: {e}")
+            logger.info(f"视频转录失败 [ID: {video_id}]: {e}")
             import traceback
             traceback.print_exc()
             return ''
@@ -247,7 +249,7 @@ class YouTubeFetcher:
         """
         video_id = self.extract_video_id(url)
         if not video_id:
-            log(f"    无法从URL提取视频ID: {_shorten_url(url)}")
+            logger.info(f"无法从URL提取视频ID: {_shorten_url(url)}")
             return None
         
         transcript = self.fetch_transcript(video_id, context=context)
@@ -302,11 +304,11 @@ class BlogFetcher:
                     }
                 )
             
-            log(f"    博客爬取返回空结果: {_shorten_url(url)}")
+            logger.info(f"博客爬取返回空结果: {_shorten_url(url)}")
             return None
             
         except Exception as e:
-            log(f"    博客爬取失败 [{_shorten_url(url)}]: {e}")
+            logger.info(f"博客爬取失败 [{_shorten_url(url)}]: {e}")
             return None
 
 
@@ -343,22 +345,22 @@ class ContentFetcher:
         # 处理YouTube链接
         for url in youtube_links:
             try:
-                log(f"    正在获取YouTube内容: {_shorten_url(url)}")
+                logger.info(f"正在获取YouTube内容: {_shorten_url(url)}")
                 content = self.youtube_fetcher.fetch(url)
                 if content:
                     results.append(content)
             except Exception as e:
-                log(f"    YouTube内容获取失败 [{_shorten_url(url)}]: {e}")
+                logger.info(f"YouTube内容获取失败 [{_shorten_url(url)}]: {e}")
         
         # 处理博客链接
         for url in blog_links:
             try:
-                log(f"    正在获取博客内容: {_shorten_url(url)}")
+                logger.info(f"正在获取博客内容: {_shorten_url(url)}")
                 content = self.blog_fetcher.fetch(url)
                 if content:
                     results.append(content)
             except Exception as e:
-                log(f"    博客内容获取失败 [{_shorten_url(url)}]: {e}")
+                logger.info(f"博客内容获取失败 [{_shorten_url(url)}]: {e}")
         
         # 合并所有外部资源链接（博客、YouTube、媒体）
         all_urls = blog_links + youtube_links + media_urls

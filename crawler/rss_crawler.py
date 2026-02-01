@@ -14,7 +14,9 @@ import configparser
 import feedparser
 from datetime import datetime, timezone
 from dateutil import parser as date_parser
-from common import organize_data, posts_to_markdown_table, group_posts_by_domain, save_batch_manifest, DAYS_LOOKBACK, log
+from common import organize_data, posts_to_markdown_table, group_posts_by_domain, save_batch_manifest, DAYS_LOOKBACK, setup_logger
+
+logger = setup_logger("rss_crawler")
 from content_fetcher import ContentFetcher, YouTubeFetcher
 
 # ================= 配置加载 =================
@@ -122,10 +124,10 @@ def _enrich_x_content(content, title):
         if embedded or extra_urls:
             t = (title or "无标题")
             t = t[:30] + "..." if len(t) > 30 else t
-            log(f"    [{t}] 嵌入: {len(embedded)}, 外链: {len(extra_urls)}")
+            logger.info(f"[{t}] 嵌入: {len(embedded)}, 外链: {len(extra_urls)}")
         return extra_content, extra_urls
     except Exception as e:
-        log(f"    X内容提取失败: {e}")
+        logger.info(f"X内容提取失败: {e}")
         return "", []
 
 def _enrich_youtube_content(link, title, context=""):
@@ -141,10 +143,10 @@ def _enrich_youtube_content(link, title, context=""):
         full_context = f"{title}\n{context}" if context else title
         yt = youtube_fetcher.fetch(link, context=full_context)
         if yt and yt.content:
-            log(f"    提取到字幕: {len(yt.content)} 字符")
+            logger.info(f"提取到字幕: {len(yt.content)} 字符")
             return yt.content
     except Exception as e:
-        log(f"    字幕提取失败: {e}")
+        logger.info(f"字幕提取失败: {e}")
     return ""
 
 def _save_raw_backup(posts, source_type, name):
@@ -159,7 +161,7 @@ def _save_raw_backup(posts, source_type, name):
         with open(os.path.join(raw_dir, filename), 'w', encoding='utf-8') as f:
             json.dump(posts, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        log(f"备份失败: {e}")
+        logger.info(f"备份失败: {e}")
 
 
 def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=True):
@@ -173,13 +175,13 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=Tr
         name: 源名称
         save_raw: 是否保存原始数据为 JSON 备份文件
     """
-    log(f"正在抓取 [{source_type}] {name}: {rss_url} ...")
+    logger.info(f"正在抓取 [{source_type}] {name}: {rss_url} ...")
     try:
         feed = feedparser.parse(rss_url)
         
         # 检查 RSS 解析是否出错
         if feed.bozo and not feed.entries:
-            log(f"RSS 解析失败: {feed.bozo_exception}")
+            logger.info(f"RSS 解析失败: {feed.bozo_exception}")
             return []
         
         recent_posts = []
@@ -197,7 +199,7 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=Tr
             content = entry.get('content', '') or entry.get('description', '')
             extra_content, extra_urls = '', []
 
-            log(f"    标题: {entry.title}")
+            logger.info(f"标题: {entry.title}")
 
             # 3. 内容增强 (X/YouTube)
             if source_type == "X":
@@ -222,7 +224,7 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=Tr
                 
         return recent_posts
     except Exception as e:
-        log(f"抓取失败: {e}")
+        logger.info(f"抓取失败: {e}")
         return []
 
 
@@ -237,20 +239,20 @@ if __name__ == "__main__":
         if not sources:  # 跳过空分类
             continue
         
-        log(f"📂 处理分类: {category}")
+        logger.info(f"📂 处理分类: {category}")
         
         for name, url in sources.items():
             posts = fetch_recent_posts(url, DAYS_LOOKBACK, source_type=category, name=name)
-            log(f" -> 发现 {len(posts)} 条相关内容，使用LLM进行整理...")
+            logger.info(f"-> 发现 {len(posts)} 条相关内容，使用LLM进行整理...")
             
             # organize_data 现在返回 list[dict]
             organized_posts = organize_data(posts, name)
             all_organized_posts.extend(organized_posts)
             
-            log(f" -> 整理完成，有效内容 {len(organized_posts)} 条")
+            logger.info(f"-> 整理完成，有效内容 {len(organized_posts)} 条")
     
     # 按领域分组
-    log(f"\n📊 整理完，共 {len(all_organized_posts)} 条有效内容，按领域分组...")
+    logger.info(f"\n📊 整理完，共 {len(all_organized_posts)} 条有效内容，按领域分组...")
     grouped_posts = group_posts_by_domain(all_organized_posts)
     
     # 准备输出目录
@@ -294,7 +296,7 @@ if __name__ == "__main__":
         
         saved_files.append((domain, report_path, len(posts)))
         domain_report_files[domain] = report_filename  # 记录到清单
-        log(f"✅ 领域 [{domain}] 报告已保存: {report_filename} ({len(posts)} 条)")
+        logger.info(f"✅ 领域 [{domain}] 报告已保存: {report_filename} ({len(posts)} 条)")
     
     # 保存批次清单文件
     save_batch_manifest(
