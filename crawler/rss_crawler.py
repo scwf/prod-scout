@@ -296,6 +296,8 @@ if __name__ == "__main__":
             md_content += f"- **日期**: {date_str}\n"
             md_content += f"- **事件分类**: {post.get('category', '未分类')}\n"
             md_content += f"- **所属领域**: {domain}\n"
+            md_content += f"- **是否属于洞察范围**: {'✅ 是' if post.get('is_in_scope') else '❌ 否'}\n"
+            md_content += f"- **判断理由**: {post.get('scope_reason', '无')}\n"
             md_content += f"- **来源**: {post.get('source_name', '未知')}\n"
             md_content += f"- **原文链接**: {post.get('link', '')}\n\n"
             
