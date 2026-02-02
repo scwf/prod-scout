@@ -5,3 +5,4 @@ yt_dlp
 openai
 tenacity
 json_repair
+webvtt-py

@@ -143,68 +143,79 @@ class GenericVideoFetcher:
         parsed = urlparse(url)
         domain = parsed.netloc.lower()
         
-        # === 策略1: YouTube ===
-        if any(d in domain for d in ['youtube.com', 'youtu.be']):
-            # copy from original extra_video_id logic
-            try:
-                # youtu.be/ID
-                if 'youtu.be' in domain:
-                    vid = parsed.path.lstrip('/').split('?')[0]
-                    if vid: return vid, f"https://www.youtube.com/watch?v={vid}"
-                    
-                # youtube.com/watch?v=ID
-                if 'youtube.com' in domain:
-                    if '/watch' in parsed.path:
-                        query = parse_qs(parsed.query)
-                        vids = query.get('v', [])
-                        if vids: return vids[0], f"https://www.youtube.com/watch?v={vids[0]}"
-                    if '/embed/' in parsed.path:
-                        parts = parsed.path.split('/embed/')
-                        if len(parts) > 1:
-                            vid = parts[1].split('/')[0].split('?')[0]
-                            return vid, f"https://www.youtube.com/watch?v={vid}"
-            except:
-                pass
-                
-        # === 策略2: 通用视频 (基于文件名或哈希) ===
-        # 使用URL路径最后一部分作为文件名基础，如果太长或非法则hash
+        # 1. 尝试解析 YouTube
+        youtube_id = self._extract_youtube_id(parsed, domain)
+        if youtube_id:
+            return youtube_id, f"https://www.youtube.com/watch?v={youtube_id}"
+
+        # 2. 通用策略 (其他视频源)
+        return self._generate_generic_video_id(url, parsed), url
+
+    def _extract_youtube_id(self, parsed, domain) -> Optional[str]:
+        """辅助函数: 提取YouTube ID"""
+        if not any(d in domain for d in ['youtube.com', 'youtu.be']):
+            return None
+            
         try:
-            filename = os.path.basename(parsed.path)
-            if not filename or '.' not in filename:
-                # 如果没有明确文件名，使用整个URL的hash
-                import hashlib
-                video_id = hashlib.md5(url.encode()).hexdigest()[:12]
-            else:
-                # 清理文件名
-                name_part = os.path.splitext(filename)[0]
-                safe_name = "".join(c if c.isalnum() else '_' for c in name_part)
-                # 加上hash前缀防止重名
-                import hashlib
-                url_hash = hashlib.md5(url.encode()).hexdigest()[:6]
-                video_id = f"{safe_name}_{url_hash}"
+            # youtu.be/ID
+            if 'youtu.be' in domain:
+                return parsed.path.lstrip('/').split('?')[0]
                 
-            return video_id, url
-        except:
-            return None, ""
+            # youtube.com/watch?v=ID or /embed/ID
+            if 'youtube.com' in domain:
+                if '/watch' in parsed.path:
+                    query = parse_qs(parsed.query)
+                    return query.get('v', [None])[0]
+                if '/embed/' in parsed.path:
+                    parts = parsed.path.split('/embed/')
+                    if len(parts) > 1:
+                        return parts[1].split('/')[0].split('?')[0]
+        except Exception:
+            pass
+        return None
+
+    def _generate_generic_video_id(self, url: str, parsed, title: str = "") -> str:
+        """辅助函数: 生成通用视频ID (基于标题、文件名或Hash)"""
+        import hashlib
+        
+        def get_hash(s):
+            return hashlib.md5(s.encode()).hexdigest()
+
+        try:
+            # 优先使用标题作为文件名基础
+            safe_name = ""
+            if title:
+                # 截取前50个字符并清理特殊字符
+                clean_title = "".join(c if c.isalnum() else '_' for c in title)[:50]
+                if clean_title:
+                    safe_name = clean_title
+
+            # 如果没有标题，尝试从URL路径获取文件名
+            if not safe_name:
+                filename = os.path.basename(parsed.path)
+                if filename and '.' in filename and len(filename) <= 80:
+                    safe_name = "".join(c if c.isalnum() else '_' for c in os.path.splitext(filename)[0])
+            
+            # 如果还是没有有效的文件名基础，直接返回Hash
+            if not safe_name:
+                return get_hash(url)[:12]
+            
+            # 组合: 安全文件名 + URL Hash前缀 (防止重名)
+            url_hash = get_hash(url)[:6]
+            return f"{safe_name}_{url_hash}"
+            
+        except Exception:
+            # 绝对兜底
+            return get_hash(url)[:12]
 
     def fetch_transcript(self, video_id: str, video_url: str, context: str = "") -> str:
         """
         获取视频字幕，并保存 srt/txt 到 raw 目录
-        
-        使用 video_scribe 模块自动处理（下载+转录）
-        
-        参数:
-            video_id: 视频ID (也是目录名)
-            video_url: 视频可下载链接
-        
-        返回:
-            视频字幕文本
         """
         import os
         import sys
         
         # 确保能导入 video_scribe
-        # video_scribe 在项目根目录， content_fetcher.py 在 crawler/ 目录
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(current_dir)
         if project_root not in sys.path:
@@ -218,25 +229,23 @@ class GenericVideoFetcher:
             logger.info(f"开始转录视频 [ID: {video_id}] -> {output_dir}")
             
             # 调用 video_scribe 处理
-            # process_video 会自动保存 .srt, .txt, .json 到 output_dir
             from video_scribe.core import process_video, optimize_subtitle
             
             asr_data = process_video(
                 video_url_or_path=video_url,
                 output_dir=output_dir,
-                device="cuda", # 默认使用CUDA，如果失败 video_scribe 可能会报错，需确保环境
-                language=None  # 自动检测
+                device="cuda", 
+                language=None
             )
             
             # --- LLM 字幕优化 ---
-            final_data = asr_data  # 默认为原始数据
+            final_data = asr_data
             try:
                 logger.info(f"开始优化字幕 [ID: {video_id}]...")
                 api_key = config.get('llm', 'api_key')
                 base_url = config.get('llm', 'base_url')
                 model = config.get('llm', 'model', fallback='deepseek-reasoner')
                 
-                # 使用视频标题/上下文作为背景信息
                 custom_prompt = ""
                 if context:
                     custom_prompt = f"视频背景信息: {context}\n请利用此信息来优化字幕。"
@@ -249,7 +258,6 @@ class GenericVideoFetcher:
                     custom_prompt=custom_prompt
                 )
                 
-                # 保存优化后的字幕
                 save_base = os.path.join(output_dir, f"{video_id}_optimized")
                 optimized_data.save(save_base + ".srt")
                 optimized_data.save(save_base + ".txt")
@@ -258,9 +266,7 @@ class GenericVideoFetcher:
                 
             except Exception as opt_e:
                 logger.warning(f"字幕优化失败，回退到原始字幕 [ID: {video_id}]: {opt_e}")
-                # 即使优化失败，也继续返回原始字幕
             
-            # 返回最终文本（优化后或原始）
             return final_data.to_txt()
             
         except Exception as e:
@@ -269,17 +275,28 @@ class GenericVideoFetcher:
             traceback.print_exc()
             return ''
     
-    def fetch(self, url: str, context: str = "") -> Optional[EmbeddedContent]:
+    def fetch(self, url: str, context: str = "", title: str = "") -> Optional[EmbeddedContent]:
         """
         获取视频的完整信息
         
         参数:
             url: 视频URL
-        
-        返回:
-            EmbeddedContent对象，如果无法提取则返回None
+            context: 上下文信息
+            title: 视频标题 (用于生成更有意义的文件名)
         """
-        video_id, video_url = self._parse_video_info(url)
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+
+        # 1. 尝试解析 YouTube ID
+        youtube_id = self._extract_youtube_id(parsed, domain)
+        if youtube_id:
+            video_id = youtube_id
+            video_url = f"https://www.youtube.com/watch?v={youtube_id}"
+        else:
+            # 2. 通用视频，优先使用 Title 生成 ID
+            video_id = self._generate_generic_video_id(url, parsed, title)
+            video_url = url
+
         if not video_id:
             logger.info(f"无法解析视频信息: {_shorten_url(url)}")
             return None
@@ -289,7 +306,7 @@ class GenericVideoFetcher:
         return EmbeddedContent(
             url=url,
             content_type='subtitle',
-            title='',  # 可后续扩展获取标题
+            title=title,
             content=transcript,
             metadata={'video_id': video_id, 'video_url': video_url}
         )
@@ -355,12 +372,13 @@ class ContentFetcher:
         self.video_fetcher = GenericVideoFetcher()
         self.blog_fetcher = BlogFetcher()
     
-    def fetch_embedded_content(self, text: str) -> Tuple[List[EmbeddedContent], List[str]]:
+    def fetch_embedded_content(self, text: str, title: str = "") -> Tuple[List[EmbeddedContent], List[str]]:
         """
         从文本中提取并爬取所有嵌入内容
         
         参数:
             text: 包含URL的文本内容（如推文正文）
+            title: 来源的标题（如推文内容的前30个字，用于辅助视频命名）
         
         返回:
             (embedded_contents, all_urls) 元组
@@ -378,7 +396,8 @@ class ContentFetcher:
         for url in video_links:
             try:
                 logger.info(f"正在获取视频内容: {_shorten_url(url)}")
-                content = self.video_fetcher.fetch(url)
+                # 传递 title 以优化 ID 生成
+                content = self.video_fetcher.fetch(url, title=title)
                 if content:
                     results.append(content)
             except Exception as e:

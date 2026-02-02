@@ -113,7 +113,7 @@ def _parse_date(entry):
 def _enrich_x_content(content, title):
     """提取 X 推文的嵌入内容"""
     try:
-        embedded, extra_urls = content_fetcher.fetch_embedded_content(content)
+        embedded, extra_urls = content_fetcher.fetch_embedded_content(content, title=title)
         extra_content = ""
         if embedded:
             parts = [f"[{'博客' if i.content_type == 'blog' else '视频字幕'}] {i.content}" 
@@ -141,7 +141,7 @@ def _enrich_youtube_content(link, title, context=""):
         # 传递 title 和 context 到 fetch，context 用作补充信息
         full_context = f"{title}\n{context}" if context else title
         # 使用 content_fetcher.video_fetcher
-        yt = content_fetcher.video_fetcher.fetch(link, context=full_context)
+        yt = content_fetcher.video_fetcher.fetch(link, context=full_context, title=title)
         if yt and yt.content:
             logger.info(f"提取到字幕: {len(yt.content)} 字符")
             return yt.content

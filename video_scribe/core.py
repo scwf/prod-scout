@@ -16,30 +16,47 @@ logger = setup_logger("core")
 
 def parse_vtt_to_asr_data(vtt_path: str) -> ASRData:
     """Parse a WebVTT file into an ASRData object."""
+    from .data import ASRDataSeg
+    
     segments = []
-    text_content = []
     
     for caption in webvtt.read(vtt_path):
-        # Convert timestamp strings to seconds (float)
+        # Convert timestamp strings to milliseconds (int)
         # WebVTT typical format: 00:00:01.500
-        start_seconds = sum(x * float(t) for x, t in zip([3600, 60, 1], caption.start.split(":")))
-        end_seconds = sum(x * float(t) for x, t in zip([3600, 60, 1], caption.end.split(":")))
-        
+        def time_str_to_ms(t_str):
+            # webvtt returns total seconds as float in some versions, or we might need to parse string
+            # webvtt-py's caption.start is usually a string "HH:MM:SS.mmm"
+            parts = t_str.split(':')
+            if len(parts) == 3: # HH:MM:SS.mmm
+                h, m, s = parts
+                s, ms = s.split('.')
+                return int(h) * 3600000 + int(m) * 60000 + int(s) * 1000 + int(ms)
+            elif len(parts) == 2: # MM:SS.mmm
+                m, s = parts
+                s, ms = s.split('.')
+                return int(m) * 60000 + int(s) * 1000 + int(ms)
+            return 0
+
+        # webvtt-py caption objects usually have start_in_seconds as float
+        if hasattr(caption, 'start_in_seconds'):
+            start_ms = int(caption.start_in_seconds * 1000)
+            end_ms = int(caption.end_in_seconds * 1000)
+        else:
+            # Fallback to parsing string if needed (though start_in_seconds should exist)
+            start_ms = time_str_to_ms(caption.start)
+            end_ms = time_str_to_ms(caption.end)
+
         text = caption.text.strip().replace('\n', ' ')
         if not text:
             continue
             
-        segments.append({
-            "start": start_seconds,
-            "end": end_seconds,
-            "text": text
-        })
-        text_content.append(text)
+        segments.append(ASRDataSeg(
+            text=text,
+            start_time=start_ms,
+            end_time=end_ms
+        ))
         
-    return ASRData(
-        text=" ".join(text_content),
-        chunks=segments
-    )
+    return ASRData(segments=segments)
 
 def try_download_youtube_subtitles(url: str, output_dir: str, lang: str = "en") -> Optional[str]:
     """
