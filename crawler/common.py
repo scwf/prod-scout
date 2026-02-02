@@ -143,6 +143,7 @@ EXAMPLE JSON OUTPUT:
     
     # 检查是否为跳过标记
     if result.get('skip'):
+        logger.info(f"LLM 返回跳过标记: {result}")
         return None
     
     # 添加来源名称

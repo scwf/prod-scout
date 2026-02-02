@@ -261,51 +261,76 @@ if __name__ == "__main__":
     
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     saved_files = []
-    domain_report_files = {}  # 用于清单: {领域名称: 文件名}
+    domain_report_dirs = {}  # 用于清单: {领域名称: 文件夹名}
     
-    # 为每个领域生成单独的报告文件
+    # 为每个领域生成单独的文件夹
     for domain, posts in grouped_posts.items():
         if not posts:
             continue
         
-        # 生成该领域的 Markdown 报告
-        domain_report = f"# 📰 Data&AI 情报周报 - {domain}\n\n"
-        domain_report += f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        domain_report += f"**内容数量**: {len(posts)} 条\n\n"
-        domain_report += "---\n\n"
-        
-        # 按来源分组显示
-        posts_by_source = {}
-        for post in posts:
-            source = post.get('source_name', '未知来源')
-            if source not in posts_by_source:
-                posts_by_source[source] = []
-            posts_by_source[source].append(post)
-        
-        for source_name, source_posts in posts_by_source.items():
-            domain_report += posts_to_markdown_table(source_posts, title=source_name)
-            domain_report += "\n\n"
-        
-        # 生成安全的文件名（替换特殊字符）
+        # 生成安全的领域名
         safe_domain = "".join(c if c.isalnum() or c in ('-', '_', '（', '）') else '_' for c in domain)
-        report_filename = f"Data&AI_report_{safe_domain}_{timestamp}.md"
-        report_path = os.path.join(output_dir, report_filename)
+        domain_dir_name = f"{safe_domain}_{timestamp}"
+        domain_dir_path = os.path.join(output_dir, domain_dir_name)
+        os.makedirs(domain_dir_path, exist_ok=True)
         
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(domain_report)
-        
-        saved_files.append((domain, report_path, len(posts)))
-        domain_report_files[domain] = report_filename  # 记录到清单
-        logger.info(f"✅ 领域 [{domain}] 报告已保存: {report_filename} ({len(posts)} 条)")
+        files_count = 0
+        for post in posts:
+            # 获取必要信息
+            event = post.get('event', '未命名事件')
+            date_str = post.get('date', '未知日期')
+            
+            # 生成安全的文件名
+            safe_event = "".join(c if c.isalnum() or c in ('-', '_', '（', '）') else '_' for c in event)
+            # 截断过长的文件名
+            if len(safe_event) > 50:
+                safe_event = safe_event[:50]
+                
+            post_filename = f"{safe_event}_{date_str}.md"
+            post_path = os.path.join(domain_dir_path, post_filename)
+            
+            # 生成 Markdown 内容
+            md_content = f"# {event}\n\n"
+            md_content += f"- **日期**: {date_str}\n"
+            md_content += f"- **事件分类**: {post.get('category', '未分类')}\n"
+            md_content += f"- **所属领域**: {domain}\n"
+            md_content += f"- **来源**: {post.get('source_name', '未知')}\n"
+            md_content += f"- **原文链接**: {post.get('link', '')}\n\n"
+            
+            md_content += "## 关键信息\n"
+            md_content += f"{post.get('key_info', '')}\n\n"
+            
+            md_content += "## 详细内容\n"
+            md_content += f"{post.get('detail', '')}\n\n"
+            
+            if post.get('extra_content'):
+                md_content += "## 补充内容\n"
+                md_content += f"{post.get('extra_content', '')}\n\n"
+                
+            if post.get('extra_urls'):
+                md_content += "## 外部链接\n"
+                for url in post.get('extra_urls', []):
+                    md_content += f"- {url}\n"
+                md_content += "\n"
+            
+            # 写入文件
+            with open(post_path, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+            
+            files_count += 1
+            
+        saved_files.append((domain, domain_dir_path, files_count))
+        domain_report_dirs[domain] = domain_dir_name
+        logger.info(f"✅ 领域 [{domain}] 已保存 {files_count} 个文件到目录: {domain_dir_name}")
     
     # 保存批次清单文件
     save_batch_manifest(
         output_dir=output_dir,
         batch_id=timestamp,
-        domain_reports=domain_report_files,
+        domain_reports=domain_report_dirs,
         stats={
             "total_posts": len(all_organized_posts),
-            "domain_count": len(domain_report_files)
+            "domain_count": len(domain_report_dirs)
         }
     )
     
