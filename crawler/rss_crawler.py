@@ -262,11 +262,43 @@ def fetch_recent_posts(rss_url, days, source_type="未知", name="", save_raw=Tr
 # ================= 主程序入口 =================
 if __name__ == "__main__":
     start_time = time.time()
-    
-    # 收集所有整理后的文章
-    all_organized_posts = []
-    
     MAX_WORKERS = config.getint('crawler', 'organize_workers', fallback=5)
+    
+    # 准备输出目录
+    output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 用于追踪已创建的领域目录 {domain: (dir_path, file_count)}
+    domain_dirs = {}
+    
+    def get_domain_dir(domain):
+        """获取领域目录路径，不存在则创建"""
+        if domain not in domain_dirs:
+            safe_domain = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in domain)
+            dir_name = f"{safe_domain}_{timestamp}"
+            dir_path = os.path.join(output_dir, dir_name)
+            os.makedirs(dir_path, exist_ok=True)
+            domain_dirs[domain] = {'path': dir_path, 'name': dir_name, 'count': 0}
+        return domain_dirs[domain]
+    
+    def write_post_file(result):
+        """将单篇文章写入对应领域目录"""
+        domain = result.get('domain', '其他')
+        event = result.get('event', '未命名事件')
+        date_str = result.get('date', '未知日期')
+        
+        domain_info = get_domain_dir(domain)
+        
+        safe_event = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in event)[:50]
+        filename = f"{safe_event}_{date_str}.md"
+        filepath = os.path.join(domain_info['path'], filename)
+        
+        md_content = generate_post_markdown(result, domain)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+        
+        domain_info['count'] += 1
     
     # 1. 准备源列表
     sources_list = [
@@ -275,11 +307,13 @@ if __name__ == "__main__":
         for name, url in sources.items()
     ]
     
-    logger.info(f"� 开始处理 {len(sources_list)} 个订阅源 (顺序抓取 -> 并行整理)...")
+    logger.info(f"🚀 开始处理 {len(sources_list)} 个订阅源 (顺序抓取 -> 并行整理)...")
+    
+    all_organized_posts = []
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         # 2. 串行抓取所有源
-        all_posts = []  # [(post, source_name), ...]
+        all_posts = []
         for category, name, url in sources_list:
             posts = fetch_recent_posts(url, DAYS_LOOKBACK, source_type=category, name=name)
             if posts:
@@ -294,7 +328,7 @@ if __name__ == "__main__":
             for post, name in all_posts
         }
         
-        # 4. 获取结果
+        # 4. 获取结果 & 即时写入
         completed = 0
         for future in as_completed(futures):
             post, name = futures[future]
@@ -303,74 +337,24 @@ if __name__ == "__main__":
                 result = future.result()
                 if result:
                     all_organized_posts.append(result)
+                    write_post_file(result)  # 即时写入
             except Exception as e:
                 logger.error(f"❌ [{name}] 整理失败: {e}")
             
-            # 每处理 10 篇打印一次进度
             if completed % 10 == 0:
                 logger.info(f"进度: {completed}/{len(futures)}")
-                
+    
     logger.info(f"所有任务执行完成，共获取 {len(all_organized_posts)} 条有效内容")
     
-    # 按领域分组
-    logger.info(f"\n📊 整理完，共 {len(all_organized_posts)} 条有效内容，按领域分组...")
-    grouped_posts = group_posts_by_domain(all_organized_posts)
-    
-    # 准备输出目录
-    output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
-    os.makedirs(output_dir, exist_ok=True)
-    
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    saved_files = []
-    domain_report_dirs = {}  # 用于清单: {领域名称: 文件夹名}
-    
-    # 为每个领域生成单独的文件夹
-    for domain, posts in grouped_posts.items():
-        if not posts:
-            continue
-        
-        # 生成安全的领域名
-        safe_domain = "".join(c if c.isalnum() or c in ('-', '_', '（', '）') else '_' for c in domain)
-        domain_dir_name = f"{safe_domain}_{timestamp}"
-        domain_dir_path = os.path.join(output_dir, domain_dir_name)
-        os.makedirs(domain_dir_path, exist_ok=True)
-        
-        files_count = 0
-        for post in posts:
-            # 获取必要信息
-            event = post.get('event', '未命名事件')
-            date_str = post.get('date', '未知日期')
-            
-            # 生成安全的文件名
-            safe_event = "".join(c if c.isalnum() or c in ('-', '_', '（', '）') else '_' for c in event)
-            # 截断过长的文件名
-            if len(safe_event) > 50:
-                safe_event = safe_event[:50]
-                
-            post_filename = f"{safe_event}_{date_str}.md"
-            post_path = os.path.join(domain_dir_path, post_filename)
-            
-            # 生成 Markdown 内容
-            md_content = generate_post_markdown(post, domain)
-            
-            # 写入文件
-            with open(post_path, 'w', encoding='utf-8') as f:
-                f.write(md_content)
-            
-            files_count += 1
-            
-        saved_files.append((domain, domain_dir_path, files_count))
-        domain_report_dirs[domain] = domain_dir_name
-        logger.info(f"✅ 领域 [{domain}] 已保存 {files_count} 个文件到目录: {domain_dir_name}")
-    
-    # 保存批次清单文件
+    # 5. 保存批次清单
+    domain_report_dirs = {domain: info['name'] for domain, info in domain_dirs.items()}
     save_batch_manifest(
         output_dir=output_dir,
         batch_id=timestamp,
         domain_reports=domain_report_dirs,
         stats={
             "total_posts": len(all_organized_posts),
-            "domain_count": len(domain_report_dirs)
+            "domain_count": len(domain_dirs)
         }
     )
     
@@ -380,13 +364,13 @@ if __name__ == "__main__":
     print("="*50)
     print(f"总共处理: {len(all_organized_posts)} 条有效内容")
     print(f"领域分布:")
-    for domain, path, count in saved_files:
-        print(f"  - {domain}: {count} 条")
-    print(f"\n生成文件:")
-    for domain, path, count in saved_files:
-        print(f"  - {os.path.basename(path)}")
+    for domain, info in domain_dirs.items():
+        print(f"  - {domain}: {info['count']} 条")
+        logger.info(f"✅ 领域 [{domain}] 已保存 {info['count']} 个文件")
+    print(f"\n生成目录:")
+    for domain, info in domain_dirs.items():
+        print(f"  - {info['name']}")
     
-    # 打印时间开销
     elapsed_time = time.time() - start_time
     print(f"\n{'='*50}")
     print(f"✅ 执行完成，总耗时: {elapsed_time:.2f} 秒")
