@@ -25,3 +25,5 @@ logs/
 
 video_scribe/models/
 video_scribe/bin/
+
+AGENTS.md

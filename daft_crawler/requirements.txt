@@ -1,0 +1,11 @@
+daft
+feedparser
+beautifulsoup4
+selenium
+webdriver-manager
+requests
+openai
+yt-dlp
+tqdm
+tenacity
+json_repair
