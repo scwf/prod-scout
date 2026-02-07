@@ -105,6 +105,7 @@ class WriterStage:
             f"- **Domain**: {domain}",
             f"- **Quality**: {stars} ({score}/5)",
             f"- **Reason**: {post.get('quality_reason', 'None')}",
+            f"- **Source_Type**: {post.get('source_type', 'Unknown')}",
             f"- **Source**: {post.get('source_name', 'Unknown')}",
             f"- **Link**: {post.get('link', '')}",
             "",
