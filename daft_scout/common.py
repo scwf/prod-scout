@@ -1,5 +1,5 @@
 ﻿"""
-common.py - shared helpers for daft_crawler.
+common.py - shared helpers for daft_scout.
 """
 
 # Time window config: look back N days.

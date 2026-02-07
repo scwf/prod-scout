@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 # Ensure project modules are importable.
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CRAWLER_DIR = os.path.join(ROOT_DIR, "crawler")
+CRAWLER_DIR = os.path.join(ROOT_DIR, "native_scout")
 sys.path.insert(0, CRAWLER_DIR)
 sys.path.insert(0, ROOT_DIR)
 

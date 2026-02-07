@@ -1,13 +1,13 @@
-# Crawl Nova - 多源数据抓取与智能整理工具
+# Prod Scout - 产品洞察Agent
 
-一个基于 RSS 和 LLM 的信息聚合工具，支持从 X (Twitter)、微信公众号、YouTube、博客等多种来源抓取内容，并使用大语言模型进行结构化整理，生成 Markdown 格式的情报周报。
+Prod Scout 是一个专注于 Data & AI 领域（也可扩展应用到其他领域）的产品情报侦察Agent。它基于 RSS 和 LLM 技术，能够自动从 X (Twitter)、微信公众号、YouTube、博客等多种来源抓取信息，并利用大语言模型进行深度解析与结构化整理，最终生成高质量的 Markdown 情报周报。
 
 ## ✨ 功能特性
 
 - **多源 RSS 抓取**：支持微信公众号、X (Twitter)、YouTube、博客/新闻等多种来源
 - **智能分类**：按来源类型自动分组整理
 - **深度内容解析**：自动提取推文或文章中的博客链接和 YouTube 视频，进行递归抓取
-- **视频智能转录**：集成 Whisper 模型将视频转换为文本，并使用 DeepSeek/LLM 基于上下文进行字幕优化
+- **视频智能转录**：集成 Whisper 模型将X中嵌入的视频或者YouTube视频转换为文本，并使用 DeepSeek/LLM 基于上下文进行字幕优化
 - **LLM 智能整理**：调用大模型 API 对抓取内容进行结构化总结
 - **Markdown 报告**：自动生成格式清晰的 Markdown 周报
 - **灵活配置**：支持自定义 LLM API、时间范围、RSS 源等
@@ -15,15 +15,17 @@
 ## 📁 项目结构
 
 ```
-crawl-nova/
-├── config.ini              # 配置文件（LLM API、RSSHub、订阅源等）
-├── rsshub-docker.env       # RSSHub Docker 环境变量
-├── crawler/
-│   ├── common.py           # 公共配置和 LLM 整理函数
-│   ├── rss_crawler.py      # RSS 信息抓取（主入口）
+prod-scout/
+├── config.ini              # 配置文件（LLM API、订阅源等）
+├── rsshub-docker.env       # RSSHub Docker 环境变量，用于抓取X，需配置TWITTER_AUTH_TOKEN等
+├── native_scout/           # [Python 原生版] 情报侦察兵（爬虫+整理）
+│   ├── pipeline.py         # 主控流水线入口
 │   ├── web_crawler.py      # Web 页面抓取 + 截图/PDF
-│   └── content_fetcher.py  # 深度内容提取与嵌入资源处理
-├── video_scribe/           # 视频转录与字幕优化模块
+│   ├── content_fetcher.py  # 深度内容提取与嵌入资源处理
+│   └── stages/             # 独立的流水线阶段（Fetch, Enrich, Organize, Write）
+├── daft_scout/             # [Daft 版] 高性能分布式侦察兵
+│   └── pipeline.py         # Daft 数据流入口
+├── video_scribe/           # [通用] 视频转录与字幕优化模块
 │   ├── core.py             # 转录核心逻辑
 │   ├── optimize.py         # LLM 字幕优化与对齐
 │   └── run_video_scribe.py # 独立运行脚本
@@ -53,7 +55,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ```bash
 # 进入项目目录
-cd crawl-nova
+cd prod-scout
 
 # 创建虚拟环境（自动下载并安装 Python）
 uv venv
@@ -117,8 +119,8 @@ Anthropic = AnthropicAI
 ### 4. 运行
 
 ```bash
-cd crawler
-python rss_crawler.py
+cd native_scout
+python pipeline.py
 ```
 
 报告将保存至 `data/rss_report_YYYYMMDD_HHMMSS.md`
@@ -127,7 +129,7 @@ python rss_crawler.py
 
 ## 🎥 视频转录与深度解析
 
-Crawl Nova 内置了强大的 `video_scribe` 模块，能够对抓取内容进行深度挖掘：
+Prod Scout 内置了强大的 `video_scribe` 模块，能够对抓取内容进行深度挖掘：
 
 ### 1. 自动 Video Scribe
 当爬虫在推文或文章中发现 YouTube 链接时，会自动触发以下流程：

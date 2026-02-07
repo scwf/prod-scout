@@ -117,7 +117,7 @@ def save_batch_manifest(output_dir, batch_id, domain_reports, manifest_filename,
     manifest = {
         "batch_id": batch_id,
         "created_at": datetime.now().isoformat(),
-        "source": "daft_crawler",
+        "source": "daft_scout",
         "domain_reports": domain_reports,
     }
 

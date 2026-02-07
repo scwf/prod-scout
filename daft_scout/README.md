@@ -1,11 +1,12 @@
 # Daft Crawler
+# Daft Scout Pipeline
 
 Daft-based reimplementation of the crawler, organized as a pipeline with clear stages.
 
 ## Entry Point
 
 ```bash
-python daft_crawler/pipeline.py
+python daft_scout/pipeline.py
 ```
 
 ## Pipeline Stages
