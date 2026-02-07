@@ -343,6 +343,7 @@ class GenericVideoFetcher:
     def fetch_transcript(self, video_id: str, video_url: str, context: str = "", optimize: bool = False) -> str:
         import sys
 
+        # Move up 2 levels: daft_scout/utils/ -> daft_scout -> project_root
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(current_dir))
         if project_root not in sys.path:

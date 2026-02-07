@@ -8,7 +8,9 @@ import hashlib
 from queue import Queue
 from datetime import datetime
 
-from common import logger, save_batch_manifest
+from common import setup_logger, save_batch_manifest
+
+logger = setup_logger("result_writer")
 
 def group_posts_by_domain(all_posts):
     """
@@ -144,6 +146,7 @@ class WriterStage:
             f.write(md_content)
         
         domain_info[tier] += 1
+        logger.info(f"💾 [Saved] [{tier.upper()}] {filename}")
         return tier
 
     def _finalize_batch(self):

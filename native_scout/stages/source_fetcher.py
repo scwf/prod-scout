@@ -12,7 +12,9 @@ from dateutil import parser as date_parser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 
-from common import logger
+from common import setup_logger
+
+logger = setup_logger("source_fetcher")
 
 class FetcherStage:
     def __init__(self, fetch_queue: Queue, config, batch_timestamp):
@@ -102,7 +104,7 @@ class FetcherStage:
         posts = self._fetch_recent_posts(rss_url, days_lookback, source_type, name)
         
         if posts:
-            logger.info(f"-> [{source_type}] {name} Fetched {len(posts)} posts")
+            logger.info(f"✅ [Fetched] [{source_type}] {name}: {len(posts)} new posts")
             for post in posts:
                 self.fetch_queue.put(post)
 
@@ -110,7 +112,7 @@ class FetcherStage:
         """
         Logic copied and adapted from rss_crawler.py
         """
-        logger.info(f"Fetching [{source_type}] {name}: {rss_url} ...")
+        logger.info(f"🔄 [Fetching] [{source_type}] {name} ...")
         try:
             try:
                 response = requests.get(rss_url, timeout=30)

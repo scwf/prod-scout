@@ -20,9 +20,10 @@ prod-scout/
 ├── rsshub-docker.env       # RSSHub Docker 环境变量，用于抓取X，需配置TWITTER_AUTH_TOKEN等
 ├── native_scout/           # [Python 原生版] 情报侦察兵（爬虫+整理）
 │   ├── pipeline.py         # 主控流水线入口
-│   ├── web_crawler.py      # Web 页面抓取 + 截图/PDF
-│   ├── content_fetcher.py  # 深度内容提取与嵌入资源处理
-│   └── stages/             # 独立的流水线阶段（Fetch, Enrich, Organize, Write）
+│   ├── stages/             # 独立的流水线阶段（Fetch, Enrich, Organize, Write）
+│   └── utils/              # 通用工具
+│       ├── web_crawler.py      # Web 页面抓取 + 截图/PDF
+│       └── content_fetcher.py  # 深度内容提取与嵌入资源处理
 ├── daft_scout/             # [Daft 版] 高性能分布式侦察兵
 │   └── pipeline.py         # Daft 数据流入口
 ├── video_scribe/           # [通用] 视频转录与字幕优化模块

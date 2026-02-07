@@ -124,7 +124,6 @@ class LinkExtractor:
         return blog_links, video_links, media_urls
 
 
-
 class GenericVideoFetcher:
     """通用视频信息获取器 (支持YouTube, Twitter视频等)"""
     
@@ -243,9 +242,9 @@ class GenericVideoFetcher:
         import sys
         
         # 确保能导入 video_scribe
-        # video_scribe 在项目根目录， content_fetcher.py 在 crawler/ 目录
+        # video_scribe 在项目根目录， content_fetcher.py 在 native_scout/utils/ 目录
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
+        project_root = os.path.dirname(os.path.dirname(current_dir)) # Up 2 levels: utils -> native_scout -> root
         if project_root not in sys.path:
             sys.path.append(project_root)
             
@@ -381,7 +380,7 @@ class BlogFetcher:
         """
         try:
             # 延迟导入，避免不使用时加载 Selenium
-            from web_crawler import fetch_web_content
+            from utils.web_crawler import fetch_web_content
             
             result = fetch_web_content(url)
             

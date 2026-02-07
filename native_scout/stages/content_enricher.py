@@ -5,8 +5,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 
-from common import logger
-from content_fetcher import ContentFetcher
+from common import setup_logger
+from utils.content_fetcher import ContentFetcher
+
+logger = setup_logger("content_enricher")
 
 class EnricherStage:
     def __init__(self, fetch_queue: Queue, enrich_queue: Queue, config, batch_timestamp):
@@ -51,7 +53,7 @@ class EnricherStage:
                 break
             
             try:
-                logger.info(f"Enriching {item['source_type']}: {item['title']}, {item['link']}")
+                logger.info(f"⚡ [Enriching] {item['source_type']}: {item['title'][:30]}...")
                 self._process_item(item)
                 self.enrich_queue.put(item)
             except Exception as e:
@@ -101,7 +103,7 @@ class EnricherStage:
             
             if embedded or extra_urls:
                 t = (title or "Untitled")
-                logger.info(f"[{t[:30]}] X Enrich: {len(embedded)} items, {len(extra_urls)} urls")
+                logger.info(f"✨ [Enriched - X] [{t[:30]}] Content: {len(embedded)} items, {len(extra_urls)} urls")
             return extra_content, extra_urls
         except Exception as e:
             logger.warning(f"X enrich error: {e}")
@@ -115,7 +117,7 @@ class EnricherStage:
                 link, context=full_context, title=title, optimize=enable_opt
             )
             if yt and yt.content:
-                logger.info(f"[{title[:30]}] YT Enrich: {len(yt.content)} chars")
+                logger.info(f"✨ [Enriched - YT] [{title[:30]}] Subtitles: {len(yt.content)} chars")
                 return yt.content
         except Exception as e:
             logger.warning(f"Youtube enrich error: {e}")

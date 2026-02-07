@@ -8,7 +8,9 @@ from queue import Queue
 
 from openai import OpenAI
 
-from common import logger, _tid
+from common import setup_logger, _tid
+
+logger = setup_logger("llm_organizer")
 
 def organize_single_post(post, source_name, llm_client, llm_config, max_retries=3, retry_delay=3):
     """
@@ -60,8 +62,6 @@ EXAMPLE JSON OUTPUT:
   - 1分(无价值): 无实质内容、纯营销广告、完全不相关
 - **quality_reason**: 简短说明评分理由
 
-如果是纯广告或无实质内容，返回: {{"skip": true}}
-
 原始数据：
 标题: {post['title']}
 时间: {post['date']}
@@ -77,6 +77,7 @@ EXAMPLE JSON OUTPUT:
     
     for attempt in range(max_retries + 1):
         try:
+            start_ts = time.time()
             response = llm_client.chat.completions.create(
                 model=llm_config.get('llm', 'model'),
                 messages=[
@@ -85,6 +86,8 @@ EXAMPLE JSON OUTPUT:
                 ],
                 response_format={'type': 'json_object'}
             )
+            elapsed = time.time() - start_ts
+            logger.info(f"LLM Response Time: {elapsed:.2f}s for {post['title'][:30]}...")
             
             # 获取响应内容和完成原因
             result_text = response.choices[0].message.content
@@ -93,10 +96,10 @@ EXAMPLE JSON OUTPUT:
             # 处理 None 或空字符串
             if not result_text or not result_text.strip():
                 if attempt < max_retries:
-                    logger.info(f"{_tid()} LLM 返回空响应 (finish_reason: {finish_reason})，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
+                    logger.warning(f"⚠️ [LLM-Empty][{post['title'][:30]}] sleep {retry_delay}s to retry... (Reason: {finish_reason})")
                     time.sleep(retry_delay)
                     continue
-                logger.info(f"{_tid()} LLM 返回空响应 (finish_reason: {finish_reason})，已重试 {max_retries} 次，跳过")
+                logger.error(f"❌ [LLM-Fail][{post['title'][:30]}] Empty response after retries.")
                 return None
             
             # 成功获取响应，跳出重试循环
@@ -105,34 +108,33 @@ EXAMPLE JSON OUTPUT:
             
         except Exception as e:
             if attempt < max_retries:
-                logger.info(f"{_tid()} API 调用失败: {e}，{retry_delay}秒后重试 ({attempt+1}/{max_retries})...")
+                logger.warning(f"⚠️ [LLM-Error][{post['title'][:30]}] {e}. Retrying in {retry_delay}s...")
                 time.sleep(retry_delay)
                 continue
             # 最后一次重试也失败，抛出异常
+            logger.error(f"❌ [LLM-Fail][{post['title'][:30]}] Final attempt failed: {e}")
             raise
     
     # 解析 JSON 响应
     try:
-        result = json.loads(result_text)
+        result = json.loads(result_text)    
     except json.JSONDecodeError as e:
-        logger.info(f"{_tid()} JSON 解析失败: {e}")
-        logger.info(f"{_tid()} 原始响应内容: {result_text[:200]}..." if len(result_text) > 200 else f"{_tid()} 原始响应内容: {result_text}")
+        logger.error(f"❌ [JSON-Fail] {post['link']} Parse error: {e}")
+        logger.error(f"❌ [JSON-Fail] {result_text}")
         return None
-    
-    # 检查是否为跳过标记
-    if result.get('skip'):
-        logger.info(f"{_tid()} LLM 返回跳过标记: {result}")
-        return None
-    
+
     # 补全基础字段 (减少LLM输出)
     result['date'] = post.get('date', '')
     result['link'] = post.get('link', '')
     result['source_name'] = source_name
     
-    # 添加 extra_content 和 extra_urls（直接从原始数据复制，不需要 LLM 输出）
+    # 添加 extra_content 和 extra_urls
     result['extra_content'] = post.get('extra_content', '')
     result['extra_urls'] = post.get('extra_urls', [])
-    
+
+    # Final Success Log
+    logger.info(f"🤖 [Organized] {result.get('domain', 'Unknown')} | Score: {result.get('quality_score')} | {post['title'][:50]}...")
+
     return result
 
 class OrganizerStage:

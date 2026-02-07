@@ -12,7 +12,7 @@ sys.path.insert(0, CRAWLER_DIR)
 sys.path.insert(0, ROOT_DIR)
 
 import pipeline
-from content_fetcher import GenericVideoFetcher
+from utils.content_fetcher import GenericVideoFetcher
 from stages.llm_organizer import organize_single_post
 from stages.result_writer import WriterStage
 
