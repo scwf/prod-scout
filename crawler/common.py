@@ -3,7 +3,6 @@ common.py - 公共配置和工具函数
 """
 import os
 import json
-import time
 import configparser
 from urllib.parse import urlparse
 from datetime import datetime
@@ -46,7 +45,7 @@ client = OpenAI(
 
 # ================= 批次清单管理 =================
 
-def save_batch_manifest(output_dir, batch_id, domain_reports, summary_report=None, stats=None):
+def save_batch_manifest(output_dir, batch_id, domain_reports, stats=None):
     """
     保存批次清单文件
     
@@ -54,7 +53,6 @@ def save_batch_manifest(output_dir, batch_id, domain_reports, summary_report=Non
         output_dir: str - 输出目录路径
         batch_id: str - 批次ID (通常是时间戳，如 20260124_123456)
         domain_reports: dict - 领域报告映射 {领域名称: 文件名}
-        summary_report: str - 汇总报告文件名 (可选)
         stats: dict - 统计信息 (可选)
     
     返回:
@@ -63,12 +61,8 @@ def save_batch_manifest(output_dir, batch_id, domain_reports, summary_report=Non
     manifest = {
         "batch_id": batch_id,
         "created_at": datetime.now().isoformat(),
-        "source": "rss_crawler",
         "domain_reports": domain_reports,
     }
-    
-    if summary_report:
-        manifest["summary_report"] = summary_report
     
     if stats:
         manifest["stats"] = stats
