@@ -1,4 +1,3 @@
-# Daft Crawler
 # Daft Scout Pipeline
 
 Daft-based reimplementation of the crawler, organized as a pipeline with clear stages.
@@ -19,7 +18,7 @@ python daft_scout/pipeline.py
 ## Project Layout
 
 ```
-daft_crawler/
+daft_scout/
   pipeline.py                # Main pipeline entry
   common.py                  # Shared helpers (logger, constants)
   stages/
