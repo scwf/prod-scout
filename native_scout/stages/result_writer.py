@@ -2,6 +2,7 @@
 result_writer.py - WriterStage for Native Python Pipeline.
 """
 import os
+import json
 import time
 import threading
 import hashlib
@@ -41,7 +42,7 @@ class WriterStage:
         
         # Stats tracking
         # {domain: {'path': ..., 'name': ..., 'high': 0, ...}}
-        self.domain_dirs = {} 
+        self.domain_info_map = {} 
         self.total_posts = 0
 
     def start(self):
@@ -77,8 +78,8 @@ class WriterStage:
         elif score >= 2: return "pending"
         else: return "excluded"
 
-    def _get_domain_dir(self, domain):
-        if domain not in self.domain_dirs:
+    def _get_domain_info(self, domain):
+        if domain not in self.domain_info_map:
             safe_domain = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in domain)
             dir_name = f"{safe_domain}_{self.batch_timestamp}"
             dir_path = os.path.join(self.output_dir, dir_name)
@@ -86,12 +87,13 @@ class WriterStage:
             for tier in ['high', 'pending', 'excluded']:
                 os.makedirs(os.path.join(dir_path, tier), exist_ok=True)
             
-            self.domain_dirs[domain] = {
+            self.domain_info_map[domain] = {
                 'path': dir_path,
                 'name': dir_name,
-                'high': 0, 'pending': 0, 'excluded': 0
+                'high': 0, 'pending': 0, 'excluded': 0,
+                'posts': []
             }
-        return self.domain_dirs[domain]
+        return self.domain_info_map[domain]
 
     def _generate_post_markdown(self, post, domain):
         score = post.get('quality_score', 3)
@@ -133,7 +135,7 @@ class WriterStage:
         date_str = result.get('date', 'Unknown date')
         quality_score = result.get('quality_score', 3)
         
-        domain_info = self._get_domain_dir(domain)
+        domain_info = self._get_domain_info(domain)
         tier = self._get_quality_tier(quality_score)
         
         safe_event = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in event)[:50]
@@ -145,6 +147,19 @@ class WriterStage:
         md_content = self._generate_post_markdown(result, domain)
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(md_content)
+
+        # Collect for JSON
+        post_json = {
+            "title": event,
+            "summary": result.get('key_info', ''),
+            "quality_score": quality_score,
+            "quality_reason": result.get('quality_reason', ''),
+            "date": date_str,
+            "category": result.get('category', 'Uncategorized'),
+            "source_name": result.get('source_name', 'Unknown'),
+            "source_type": result.get('source_type', 'Unknown')
+        }
+        domain_info['posts'].append(post_json)
         
         domain_info[tier] += 1
         logger.info(f"💾 [Saved] [{tier.upper()}] {filename}")
@@ -152,11 +167,20 @@ class WriterStage:
 
     def _finalize_batch(self):
         """Save stats and manifest."""
-        total_high = sum(info['high'] for info in self.domain_dirs.values())
-        total_pending = sum(info['pending'] for info in self.domain_dirs.values())
-        total_excluded = sum(info['excluded'] for info in self.domain_dirs.values())
+        # Save JSON for each domain
+        for domain, info in self.domain_info_map.items():
+            json_path = os.path.join(info['path'], 'posts.json')
+            try:
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(info['posts'], f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.error(f"Failed to save posts.json for {domain}: {e}")
+
+        total_high = sum(info['high'] for info in self.domain_info_map.values())
+        total_pending = sum(info['pending'] for info in self.domain_info_map.values())
+        total_excluded = sum(info['excluded'] for info in self.domain_info_map.values())
         
-        domain_reports = {domain: info['name'] for domain, info in self.domain_dirs.items()}
+        domain_reports = {domain: info['name'] for domain, info in self.domain_info_map.items()}
         
         save_batch_manifest(
             output_dir=self.output_dir,
@@ -164,7 +188,7 @@ class WriterStage:
             domain_reports=domain_reports,
             stats={
                 "total_posts": self.total_posts,
-                "domain_count": len(self.domain_dirs),
+                "domain_count": len(self.domain_info_map),
                 "quality_distribution": {
                     "high": total_high,
                     "pending": total_pending,
@@ -185,6 +209,6 @@ class WriterStage:
         print(f"  Pending:  {pending}")
         print(f"  Excluded: {excluded}")
         print(f"\nDomains:")
-        for domain, info in self.domain_dirs.items():
+        for domain, info in self.domain_info_map.items():
             print(f"  - {domain}: {info['high']} H / {info['pending']} P / {info['excluded']} E")
         print("="*60)
