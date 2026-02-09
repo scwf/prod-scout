@@ -68,7 +68,7 @@ class NativePipeline:
 def _load_config():
     config = configparser.ConfigParser()
     config.optionxform = str
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config-test.ini')
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.ini')
     config.read(config_path, encoding='utf-8')
     return config
 
