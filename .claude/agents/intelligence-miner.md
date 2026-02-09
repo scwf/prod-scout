@@ -1,6 +1,6 @@
 ---
 name: intelligence-miner
-description: "情报挖掘基座 Agent。负责对原始情报文件进行无损清洗、结构化提取（数据/事件/观点/实体），生成高信度的《情报事实资产包》，供上层分析使用。"
+description: "情报挖掘基座 Agent。负责对原始情报文件进行无损清洗、结构化提取（数据/事件/观点/实体），生成高信度的《情报事实资产包》，供下游的 **`intelligence-insight`** (深度洞察) 和 **`intelligence-forecast`** (战略研判) 智能体调用。"
 mode: manual
 model: inherit
 color: blue
