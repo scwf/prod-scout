@@ -21,7 +21,7 @@ logs/
 .idea/
 .vscode/
 *.swp
-.claude/
+.claude/*.json
 
 video_scribe/models/
 video_scribe/bin/
