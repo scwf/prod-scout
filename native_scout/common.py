@@ -8,10 +8,6 @@ from urllib.parse import urlparse
 from datetime import datetime
 import threading
 
-
-# 时间范围配置,爬取最近多少天的内容
-DAYS_LOOKBACK = 7
-
 # 批次清单文件名
 MANIFEST_FILENAME = "latest_batch.json"
 

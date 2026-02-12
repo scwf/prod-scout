@@ -98,8 +98,7 @@ class FetcherStage:
 
     def _fetch_task(self, rss_url, source_type, name):
         """Core fetch logic."""
-        # Config: Days Lookback
-        days_lookback = 7 # Could read from config if needed, default 7
+        days_lookback = self.config.getint('crawler', 'days_lookback', fallback=1)
         
         posts = self._fetch_recent_posts(rss_url, days_lookback, source_type, name)
         
