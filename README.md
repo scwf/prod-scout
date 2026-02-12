@@ -30,7 +30,11 @@ prod-scout/
 │   ├── core.py             # Core logic for transcription
 │   ├── optimize.py         # LLM subtitle optimization and alignment
 │   └── run_video_scribe.py # Standalone execution script
-├── data/                   # Output directory (reports, screenshots, transcripts, etc.)
+├── data/                   # Output directory
+│   └── {batch_timestamp}/  # Each run creates an isolated batch directory
+│       ├── raw/            # Raw data backups + video transcripts
+│       ├── By-Domain/      # Posts organized by domain
+│       └── By-Entity/      # Posts organized by entity
 └── README.md
 ```
 
@@ -205,37 +209,58 @@ Example: `http://127.0.0.1:1200/twitter/user/karpathy`
 
 ---
 
-## 📝 Output Example
+## 📝 Output Structure
+
+Each pipeline run creates a batch directory under `data/`:
+
+```
+data/20260212_210000/
+├── raw/                              # Raw backups & video transcripts
+│   ├── X_OpenAI.json                 # Raw posts from X_OpenAI
+│   ├── WX_机器之心.json               # Raw posts from WeChat
+│   ├── YT_Databricks.json            # Raw posts from YouTube
+│   └── YT_Databricks_dQw4w9WgXcQ/    # Video transcript files
+│       ├── dQw4w9WgXcQ.srt
+│       └── dQw4w9WgXcQ.txt
+├── By-Domain/                        # Posts grouped by domain
+│   ├── 大模型技术和产品/
+│   │   ├── high/                     # Quality score >= 4
+│   │   │   ├── X_OpenAI_2026-02-04_e4be7e.md
+│   │   │   └── WX_机器之心_2026-02-05_a3b8d1.md
+│   │   ├── pending/                  # Quality score 2-3
+│   │   └── excluded/                 # Quality score <= 1
+│   ├── AI平台和框架/
+│   └── .../
+├── By-Entity/                        # Posts grouped by entity (from config.ini)
+│   ├── OpenAI/
+│   ├── Google/
+│   ├── Databricks/
+│   └── Others/                       # Posts not matching any configured entity
+└── batch_manifest.json               # Batch summary & statistics
+```
+
+### Post File Format
+
+Each post is saved as a Markdown file named `{source_name}_{date}_{hash}.md`:
 
 ```markdown
-# 🌍 Data&AI Intelligence Weekly Report (Automated RSS Crawler)
+# OpenAI开始在ChatGPT中测试广告
 
-## 📂 weixin
+- **Date**: 2026-02-09
+- **Category**: 产品动态
+- **Domain**: 大模型技术和产品
+- **Quality**: ⭐⭐⭐⭐⭐ (5/5)
+- **Reason**: 重要的商业模式转变，包含全面的隐私保护和安全保障措施说明，涉及产品核心体验调整
+- **Source_Type**: X
+- **Source**: X_OpenAI
+- **Link**: https://x.com/OpenAI/status/2020936703763153010
 
-### TencentTech
+## Key Info
+1. 测试面向美国Free和Go订阅层级用户，Plus/Pro/Business/Enterprise/Education层级无广告<br>2. 广告明确标记为赞助并与有机答案视觉分离，不影响ChatGPT答案的独立性<br>3. 广告商无法访问用户聊天记录、历史、记忆或个人详情，仅接收聚合表现数据<br>4. 不向18岁以下用户展示广告，避开敏感/受监管话题（健康、心理健康、政治）<br>5. 目标是通过广告收入支持更广泛用户免费访问ChatGPT，同时保护用户信任
 
-| Date | Event | Key Info | Original Link | Details | Supplement | External Links | Category | Domain |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2026-01-15 | Tencent Engineers Share AI Coding Tips | 1. Content aggregates practical experience from 10 Tencent engineers.<br>2. Core advice: use high-quality models, prioritize Commit backups, etc. | [Link](https://mp.weixin.qq.com/s?...) | Article discusses "failures" and tips in AI programming practice... | - | - | Opinion | AI Coding (IDE) |
-| 2026-01-13 | Tencent Open Sources AngelSlim Toolkit | 1. Hunyuan team upgrades and open sources AngelSlim model compression toolkit.<br>2. Can increase model inference speed by up to 1.4-1.9x. | [Link](https://mp.weixin.qq.com/s?...) | Article announces major upgrade of Tencent AngelSlim toolkit... | - | - | Tech Release | LLM Tech & Product |
+## Details
+OpenAI宣布开始在美国测试ChatGPT中的广告功能。测试面向Free和Go订阅层级的登录成年用户，而Plus、Pro、Business、Enterprise和Education层级不会展示广告。OpenAI强调广告不会 influence ChatGPT的答案，答案始终保持独立性和无偏见性，广告会明确标记为"赞助"并与有机答案视觉分离。在隐私保护方面，广告商无法访问用户的聊天记录、历史、记忆或个人详情，仅能接收广告表现的聚合信息（如浏览量或点击量）。系统不会向18岁以下用户或敏感/受监管话题（如健康、心理健康或政治）附近展示广告。OpenAI表示，此举旨在通过广告收入支持更广泛的用户免费访问ChatGPT，同时保持用户体验和信任。测试阶段将收集反馈以优化体验，未来计划为广告商提供更多格式和购买模式。
 
----
-
-## 📂 X
-
-### AI Researcher (Andrej)
-
-| Date | Event | Key Info | Original Link | Details | Supplement | External Links | Category | Domain |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2026-02-01 | Analysis of New LLM Training Paradigm | 1. Video core point: SFT data quality is more important than quantity.<br>2. Deep fetch: Blog post details "Token Efficiency".<br>3. Mentions future trend is small models + high quality data. | [Link](https://x.com/karpathy/...) | Andrej deeply analyzes data strategy in current LLM training SFT stage... | **[Video Analysis]** Andrej explains in detail in the video... (based on Video Scribe transcription)<br>**[Blog Summary]** Attached article delves into... | [karpathy.ai](https://karpathy.ai) | Deep Insight | LLM Tech & Product |
-
-### MLflow
-
-| Date | Event | Key Info | Original Link | Details | Supplement | External Links | Category | Domain |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2026-01-16 | Podcast Released, Discussing MLflow Evolution to GenAI Platform | 1. Video content: MLflow team discusses evolution to AI Agent platform.<br>2. Key challenges: Evaluation and Governance are current pain points for enterprise adoption. | [Link](https://x.com/MLflow/...) | MLflow team released a new podcast episode focusing on... | **[Video Intelligent Transcription]** Podcast detailed discussion...<br>MLflow isn't just for traditional data scientists anymore... | - | Tech Release | AI Platform & Framework |
-
----
 ```
 
 ## 📚 More RSS Sources
