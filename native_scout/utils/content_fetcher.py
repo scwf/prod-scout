@@ -251,8 +251,8 @@ class GenericVideoFetcher:
             
         try:
             # 构造输出目录: data/raw_{timestamp}/{video_id}/
-            raw_dir_name = f"raw_{self.batch_timestamp}" if self.batch_timestamp else "raw"
-            output_dir = os.path.join(project_root, 'data', raw_dir_name, video_id)
+            raw_dir_name = self.batch_timestamp if self.batch_timestamp else "default"
+            output_dir = os.path.join(project_root, 'data', raw_dir_name, 'raw', video_id)
             os.makedirs(output_dir, exist_ok=True)
             
             logger.info(f"开始转录视频 [ID: {video_id}] -> {output_dir}")
@@ -316,7 +316,7 @@ class GenericVideoFetcher:
             traceback.print_exc()
             return ''
     
-    def fetch(self, url: str, context: str = "", title: str = "", optimize: bool = False) -> Optional[EmbeddedContent]:
+    def fetch(self, url: str, context: str = "", title: str = "", source_name: str = "", optimize: bool = False) -> Optional[EmbeddedContent]:
         """
         获取视频的完整信息
         
@@ -344,19 +344,22 @@ class GenericVideoFetcher:
             logger.info(f"无法解析视频信息: {_shorten_url(url)}")
             return None
         
+        # Combine source_name + video_id as storage directory name
+        storage_id = f"{source_name}_{video_id}"
+        
         # 预检查：跳过已知的无声视频
         if self._is_likely_silent_video(url):
             logger.info(f"跳过静音视频（URL模式匹配）: {_shorten_url(url)}")
             return None
         
-        transcript = self.fetch_transcript(video_id, video_url, context=context, optimize=optimize)
+        transcript = self.fetch_transcript(storage_id, video_url, context=context, optimize=optimize)
         
         return EmbeddedContent(
             url=url,
             content_type='subtitle',
             title=title,
             content=transcript,
-            metadata={'video_id': video_id, 'video_url': video_url}
+            metadata={'video_id': video_id, 'storage_id': storage_id, 'video_url': video_url}
         )
 
 
@@ -421,7 +424,7 @@ class ContentFetcher:
         self.video_fetcher = GenericVideoFetcher(batch_timestamp=batch_timestamp)
         self.blog_fetcher = BlogFetcher()
     
-    def fetch_embedded_content(self, text: str, title: str = "", optimize_video: bool = False) -> Tuple[List[EmbeddedContent], List[str]]:
+    def fetch_embedded_content(self, text: str, title: str = "", source_name: str = "", optimize_video: bool = False) -> Tuple[List[EmbeddedContent], List[str]]:
         """
         从文本中提取并爬取所有嵌入内容
         
@@ -445,7 +448,7 @@ class ContentFetcher:
         for url in video_links:
             try:
                 logger.info(f"正在获取视频内容: {_shorten_url(url)}")
-                content = self.video_fetcher.fetch(url, title=title, context=text, optimize=optimize_video)
+                content = self.video_fetcher.fetch(url, title=title, context=text, source_name=source_name, optimize=optimize_video)
                 if content:
                     results.append(content)
             except Exception as e:
@@ -466,11 +469,11 @@ class ContentFetcher:
         
         return results, all_urls
 
-    def fetch_video(self, url: str, context: str = "", title: str = "", optimize: bool = False) -> Optional[EmbeddedContent]:
+    def fetch_video(self, url: str, context: str = "", title: str = "", source_name: str = "", optimize: bool = False) -> Optional[EmbeddedContent]:
         """
         Explicit method to fetch a single video content (e.g. for YouTube enrichment).
         Wraps the internal video_fetcher.
         """
-        return self.video_fetcher.fetch(url, context=context, title=title, optimize=optimize)
+        return self.video_fetcher.fetch(url, context=context, title=title, source_name=source_name, optimize=optimize)
     
 

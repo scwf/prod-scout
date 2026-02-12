@@ -72,28 +72,29 @@ class EnricherStage:
         if source_type not in ('X', 'YouTube'):
             return
 
+        source_name = post.get('source_name', '')
         try:
             if source_type == "X":
                 content = post.get('content', '')
-                extra_content, extra_urls = self._enrich_x_content(content, title)
+                extra_content, extra_urls = self._enrich_x_content(content, title, source_name)
                 post['extra_content'] = extra_content
                 post['extra_urls'] = extra_urls
                 
             elif source_type == "YouTube":
                 link = post.get('link', '')
                 content = post.get('content', '')
-                extra_content = self._enrich_youtube_content(link, title, content)
+                extra_content = self._enrich_youtube_content(link, title, content, source_name)
                 post['extra_content'] = extra_content
                 
         except Exception as e:
             t = title[:30] + "..." if len(title) > 30 else title
             logger.info(f"[{t}] Enrichment failed: {e}")
 
-    def _enrich_x_content(self, content, title):
+    def _enrich_x_content(self, content, title, source_name=''):
         try:
             enable_opt = self.config.getboolean('llm', 'enable_subtitle_optimization', fallback=False)
             embedded, extra_urls = self.content_fetcher.fetch_embedded_content(
-                content, title=title, optimize_video=enable_opt
+                content, title=title, source_name=source_name, optimize_video=enable_opt
             )
             extra_content = ""
             if embedded:
@@ -109,12 +110,12 @@ class EnricherStage:
             logger.warning(f"X enrich error: {e}")
             return "", []
 
-    def _enrich_youtube_content(self, link, title, context=""):
+    def _enrich_youtube_content(self, link, title, context="", source_name=''):
         try:
             full_context = f"{title}\n{context}" if context else title
             enable_opt = self.config.getboolean('llm', 'enable_subtitle_optimization', fallback=False)
             yt = self.content_fetcher.fetch_video(
-                link, context=full_context, title=title, optimize=enable_opt
+                link, context=full_context, title=title, source_name=source_name, optimize=enable_opt
             )
             if yt and yt.content:
                 logger.info(f"✨ [Enriched - YT] [{title[:30]}] Subtitles: {len(yt.content)} chars")

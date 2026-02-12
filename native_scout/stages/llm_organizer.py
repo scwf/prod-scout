@@ -11,7 +11,7 @@ from common import setup_logger, _tid
 
 logger = setup_logger("llm_organizer")
 
-def organize_single_post(post, prompt_template, llm_client, llm_config, max_retries=3, retry_delay=3):
+def organize_single_post(post, prompt_template, llm_client, llm_config, entity_list='', max_retries=3, retry_delay=3):
     """
     调用 LLM 对单篇文章进行标准化整理，返回 JSON 结构化数据
     
@@ -39,7 +39,8 @@ def organize_single_post(post, prompt_template, llm_client, llm_config, max_retr
         'source_name': post.get('source_name', ''),  # Added for potential prompt usage
         'content': post.get('content', ''),
         'extra_content': post.get('extra_content', ''),
-        'extra_urls': post.get('extra_urls', [])     # List of strings
+        'extra_urls': post.get('extra_urls', []),
+        'entity_list': entity_list
     }
     
     # 3. Format Prompt
@@ -133,6 +134,7 @@ class OrganizerStage:
         
         # Load prompt template once during initialization
         self.prompt_template = self._load_prompt_template()
+        self.entity_list = self._load_entity_list()
         
         self.max_workers = config.getint('crawler', 'organize_workers', fallback=5)
         self.pool = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="Organizer")
@@ -161,6 +163,14 @@ class OrganizerStage:
         except Exception as e:
             logger.error(f"❌ Failed to load prompt template: {e}")
             return ""
+
+    def _load_entity_list(self):
+        """Load entity names from config [entity_mapping] section as comma-separated string."""
+        if self.config.has_section('entity_mapping'):
+            entities = list(self.config.options('entity_mapping'))
+            logger.info(f"Loaded {len(entities)} entities for prompt: {', '.join(entities)}")
+            return ', '.join(entities)
+        return ''
 
     def start(self):
         """Start consumer workers."""
@@ -197,6 +207,7 @@ class OrganizerStage:
                     prompt_template=self.prompt_template,
                     llm_client=self.client,
                     llm_config=self.config,
+                    entity_list=self.entity_list,
                 )
                 
                 if result:

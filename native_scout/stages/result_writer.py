@@ -6,31 +6,13 @@ import json
 import time
 import threading
 import hashlib
+import shutil
 from queue import Queue
 from datetime import datetime
 
 from common import setup_logger, save_batch_manifest
 
 logger = setup_logger("result_writer")
-
-def group_posts_by_domain(all_posts):
-    """
-    按所属领域对文章进行分组
-    
-    参数:
-        all_posts: list[dict] - 所有整理后的文章数据列表
-    
-    返回:
-        dict: {domain: list[dict]} - 按领域分组的文章
-    """
-    grouped = {}
-    for post in all_posts:
-        domain = post.get('domain', '其他')
-        if domain not in grouped:
-            grouped[domain] = []
-        grouped[domain].append(post)
-    return grouped
-
 
 class WriterStage:
     def __init__(self, organize_queue: Queue, output_dir, batch_timestamp):
@@ -44,6 +26,54 @@ class WriterStage:
         # {domain: {'path': ..., 'name': ..., 'high': 0, ...}}
         self.domain_info_map = {} 
         self.total_posts = 0
+        
+        # Entity Mapping
+        self.entity_mapping = self._load_entity_mapping()
+        self.source_to_entity = self._build_source_index()
+        self.entity_stats = {}  # {entity_name: count}
+
+    def _load_entity_mapping(self):
+        """
+        Load entity mapping from config.ini [entity_mapping] section.
+        Format: CanonicalEntity = alias1, alias2, ...
+        """
+        mapping = {}
+        try:
+            import configparser
+            
+            # Resolve config.ini path (Assume in project root)
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            config_path = os.path.join(base_dir, "config.ini")
+            
+            if not os.path.exists(config_path):
+                logger.warning(f"Config file not found at {config_path}")
+                return {}
+            
+            # Use optionxform=str to preserve key case (e.g. "OpenAI" instead of "openai")
+            config = configparser.ConfigParser()
+            config.optionxform = str
+            config.read(config_path, encoding='utf-8')
+            
+            if 'entity_mapping' in config:
+                for entity, aliases_str in config['entity_mapping'].items():
+                    aliases = [a.strip() for a in aliases_str.split(',') if a.strip()]
+                    if entity not in aliases:
+                        aliases.append(entity)
+                    mapping[entity] = aliases
+                    
+            return mapping
+            
+        except Exception as e:
+            logger.error(f"Failed to load entity mapping from config.ini: {e}")
+            return {}    
+
+    def _build_source_index(self):
+        """Build reverse index: source_key -> canonical_entity"""
+        index = {}
+        for entity_name, sources in self.entity_mapping.items():
+            for source in sources:
+                index[source.lower()] = entity_name
+        return index
 
     def start(self):
         logger.info("Starting WriterStage...")
@@ -81,8 +111,10 @@ class WriterStage:
     def _get_domain_info(self, domain):
         if domain not in self.domain_info_map:
             safe_domain = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in domain)
-            dir_name = f"{safe_domain}_{self.batch_timestamp}"
-            dir_path = os.path.join(self.output_dir, dir_name)
+            
+            # New Structure: 1-By-Domain/{Domain}
+            dir_name = safe_domain
+            dir_path = os.path.join(self.output_dir, "By-Domain", dir_name)
             
             for tier in ['high', 'pending', 'excluded']:
                 os.makedirs(os.path.join(dir_path, tier), exist_ok=True)
@@ -134,18 +166,20 @@ class WriterStage:
         event = result.get('event', 'Untitled event')
         date_str = result.get('date', 'Unknown date')
         quality_score = result.get('quality_score', 3)
+        source_name = result.get('source_name', 'Unknown')
         
+        # 1. Write to Domain View (Master Copy)
         domain_info = self._get_domain_info(domain)
         tier = self._get_quality_tier(quality_score)
         
-        safe_event = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in event)[:50]
         link = result.get('link', '')
-        unique_suffix = hashlib.md5(link.encode('utf-8')).hexdigest()[:8] if link else "nolink"
-        filename = f"{safe_event}_{date_str}_{unique_suffix}.md"
-        filepath = os.path.join(domain_info['path'], tier, filename)
+        unique_suffix = hashlib.md5(link.encode('utf-8')).hexdigest()[:6] if link else "nolink"
+        filename = f"{source_name}_{date_str}_{unique_suffix}.md"
+        
+        domain_filepath = os.path.join(domain_info['path'], tier, filename)
         
         md_content = self._generate_post_markdown(result, domain)
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(domain_filepath, 'w', encoding='utf-8') as f:
             f.write(md_content)
 
         # Collect for JSON
@@ -154,16 +188,55 @@ class WriterStage:
             "summary": result.get('key_info', ''),
             "quality_score": quality_score,
             "quality_reason": result.get('quality_reason', ''),
+            "link": link,
             "date": date_str,
             "category": result.get('category', 'Uncategorized'),
-            "source_name": result.get('source_name', 'Unknown'),
+            "primary_entity": result.get('primary_entity'),
+            "source_name": source_name,
             "source_type": result.get('source_type', 'Unknown')
         }
         domain_info['posts'].append(post_json)
-        
         domain_info[tier] += 1
-        logger.info(f"💾 [Saved] [{tier.upper()}] {filename}")
+        
+        # 2. Write to Entity View
+        # Priority: Source Mapping > LLM primary_entity (already constrained by prompt)
+        canonical_entity = None
+        
+        # A. Source Mapping (High Confidence)
+        if source_name:
+            canonical_entity = self.source_to_entity.get(source_name.lower())
+        
+        # B. Fallback to LLM primary_entity (constrained to entity list + "Others")
+        if not canonical_entity:
+            canonical_entity = result.get('primary_entity', 'Others')
+        
+        if tier in ['high', 'pending']:
+            self._write_to_entity_view(canonical_entity, domain_filepath, filename)
+
+        logger.info(f"💾 [Saved] [{tier.upper()}] {filename}") # Reduce log noise
         return tier
+
+    def _write_to_entity_view(self, entity_name, original_path, filename):
+        """
+        Link/Copy file to 3-By-Entity/{EntityName}/
+        """
+        if not entity_name:
+            return
+
+        # Sanitize entity name for filesystem
+        safe_entity = "".join(c if c.isalnum() or c in ('-', '_', ' ') else '_' for c in entity_name).strip()
+        
+        entity_dir = os.path.join(self.output_dir, "By-Entity", safe_entity)
+        os.makedirs(entity_dir, exist_ok=True)
+        
+        target_path = os.path.join(entity_dir, filename)
+        
+        try:
+            shutil.copy2(original_path, target_path)
+            # Update stats
+            self.entity_stats[safe_entity] = self.entity_stats.get(safe_entity, 0) + 1
+        except Exception as e:
+            logger.error(f"Failed to copy to entity view {safe_entity}: {e}")
 
     def _finalize_batch(self):
         """Save stats and manifest."""
@@ -182,6 +255,7 @@ class WriterStage:
         
         domain_reports = {domain: info['name'] for domain, info in self.domain_info_map.items()}
         
+        # Manifest
         save_batch_manifest(
             output_dir=self.output_dir,
             batch_id=self.batch_timestamp,
@@ -193,7 +267,8 @@ class WriterStage:
                     "high": total_high,
                     "pending": total_pending,
                     "excluded": total_excluded
-                }
+                },
+                "top_entities": self.entity_stats
             }
         )
         
@@ -204,11 +279,16 @@ class WriterStage:
         print("Execution Summary")
         print("="*60)
         print(f"Total Valid Posts: {self.total_posts}")
-        print(f"\nQuality Distribution:")
-        print(f"  High:     {high}")
-        print(f"  Pending:  {pending}")
-        print(f"  Excluded: {excluded}")
+        print(f"Quality Distribution: H:{high} / P:{pending} / E:{excluded}")
+        
         print(f"\nDomains:")
         for domain, info in self.domain_info_map.items():
-            print(f"  - {domain}: {info['high']} H / {info['pending']} P / {info['excluded']} E")
+            print(f"  - {domain}: {info['high']} H / {info['pending']} P")
+            
+        print(f"\nEntities (Auto-Grouped):")
+        sorted_entities = sorted(self.entity_stats.items(), key=lambda x: x[1], reverse=True)[:10]
+        if not sorted_entities:
+            print("  (None detected)")
+        for ent, count in sorted_entities:
+            print(f"  - {ent}: {count} posts")
         print("="*60)

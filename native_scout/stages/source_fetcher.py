@@ -182,10 +182,9 @@ class FetcherStage:
         if not posts: return
         try:
             # stages/.. -> crawler/.. -> root
-            raw_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data', f'raw_{self.batch_timestamp}')
+            raw_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'data', self.batch_timestamp, 'raw')
             os.makedirs(raw_dir, exist_ok=True)
-            safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in name)
-            filename = f"{source_type}_{safe_name}.json"
+            filename = f"{name}.json"
             
             with open(os.path.join(raw_dir, filename), 'w', encoding='utf-8') as f:
                 json.dump(posts, f, ensure_ascii=False, indent=2)

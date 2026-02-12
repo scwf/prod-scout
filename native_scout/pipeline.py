@@ -112,7 +112,7 @@ def _load_sources(config):
 if __name__ == "__main__":
     config = _load_config()
     batch_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+    output_dir = os.path.join(os.path.dirname(__file__), '..', 'data', batch_ts)
     os.makedirs(output_dir, exist_ok=True)
 
     sources = _load_sources(config)
