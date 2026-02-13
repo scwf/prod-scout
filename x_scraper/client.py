@@ -5,6 +5,7 @@ client.py - X/Twitter GraphQL API 客户端
 - 请求头构造 (Authorization, CSRF, Cookie)
 - TLS 指纹伪装 (curl_cffi)
 - 速率限制处理与自动重试
+- 断路器 (连续失败后暂停请求)
 - 用户 ID 查询与推文时间线获取
 """
 import json
@@ -79,6 +80,17 @@ DEFAULT_FIELD_TOGGLES = {
     "withArticlePlainText": False,
 }
 
+# ─── P3: User-Agent 池 ───
+# 多个真实 Chrome UA，每次请求随机选取，降低被指纹聚类的风险
+UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+]
+
 
 class XClientError(Exception):
     """X Client 基础异常"""
@@ -112,6 +124,10 @@ class XClient:
         account_pool: AccountPool,
         timeout: int = 30,
         max_retries: int = 3,
+        circuit_breaker_threshold: int = 5,
+        circuit_breaker_cooldown: int = 60,
+        query_ids: Optional[Dict[str, str]] = None,
+        features: Optional[Dict[str, Any]] = None,
     ):
         """
         初始化 X 客户端。
@@ -120,11 +136,25 @@ class XClient:
             account_pool: 账号池实例
             timeout: 请求超时时间 (秒)
             max_retries: 最大重试次数
+            circuit_breaker_threshold: 断路器阈值 (连续失败次数)
+            circuit_breaker_cooldown: 断路器冷却时间 (秒)
+            query_ids: 自定义 GraphQL Query IDs (覆盖默认值)
+            features: 自定义 GraphQL Features (覆盖默认值)
         """
         self.account_pool = account_pool
         self.timeout = timeout
         self.max_retries = max_retries
         self.parser = TweetParser()
+
+        # P2: 可配置的 Query IDs 和 Features
+        self._query_ids = {**QUERY_IDS, **(query_ids or {})}
+        self._features = {**DEFAULT_FEATURES, **(features or {})}
+
+        # P1: 断路器状态
+        self._cb_threshold = circuit_breaker_threshold
+        self._cb_cooldown = circuit_breaker_cooldown
+        self._cb_consecutive_failures = 0
+        self._cb_open_until = 0.0  # epoch timestamp, 0 = closed
 
         # 用户名 -> user_id 的缓存
         self._user_id_cache: Dict[str, str] = {}
@@ -146,7 +176,7 @@ class XClient:
             )
 
     def _build_headers(self, account: AccountState) -> Dict[str, str]:
-        """构造请求头"""
+        """构造请求头 (P3: 每次请求随机选取 UA)"""
         return {
             "authorization": WEB_BEARER_TOKEN,
             "x-csrf-token": account.ct0,
@@ -154,11 +184,7 @@ class XClient:
             "x-twitter-auth-type": "OAuth2Session",
             "x-twitter-client-language": "en",
             "content-type": "application/json",
-            "user-agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
+            "user-agent": random.choice(UA_POOL),
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9",
             "referer": "https://x.com/",
@@ -247,13 +273,47 @@ class XClient:
                 raise
             raise XClientError(f"请求失败: {e}")
 
+    def _check_circuit_breaker(self) -> bool:
+        """
+        P1: 检查断路器状态。
+
+        Returns:
+            True = 可以发请求, False = 断路器打开，需要等待
+        """
+        if self._cb_open_until > 0:
+            remaining = self._cb_open_until - time.time()
+            if remaining > 0:
+                logger.warning(f"⚡ 断路器已打开，等待 {remaining:.0f}s 后重试...")
+                time.sleep(min(remaining, self._cb_cooldown))
+            # 半开状态: 允许一次试探请求
+            self._cb_open_until = 0
+            logger.info("⚡ 断路器半开，尝试恢复...")
+        return True
+
+    def _record_success(self):
+        """P1: 记录请求成功，重置断路器"""
+        if self._cb_consecutive_failures > 0:
+            logger.info(f"⚡ 断路器恢复 (此前连续失败 {self._cb_consecutive_failures} 次)")
+        self._cb_consecutive_failures = 0
+        self._cb_open_until = 0
+
+    def _record_failure(self):
+        """P1: 记录请求失败，判断是否触发断路器"""
+        self._cb_consecutive_failures += 1
+        if self._cb_consecutive_failures >= self._cb_threshold:
+            self._cb_open_until = time.time() + self._cb_cooldown
+            logger.error(
+                f"⚡ 断路器触发: 连续失败 {self._cb_consecutive_failures} 次，"
+                f"暂停请求 {self._cb_cooldown}s"
+            )
+
     def _request_with_retry(
         self,
         url: str,
         params: Dict[str, str],
     ) -> Optional[Dict[str, Any]]:
         """
-        带重试和账号轮换的请求。
+        带重试、账号轮换和断路器保护的请求。
 
         Args:
             url: 请求 URL
@@ -262,6 +322,9 @@ class XClient:
         Returns:
             JSON 响应 dict，或 None (全部失败)
         """
+        # P1: 断路器检查
+        self._check_circuit_breaker()
+
         for attempt in range(self.max_retries):
             account = self.account_pool.get_next()
             if account is None:
@@ -272,17 +335,22 @@ class XClient:
                     return None
 
             try:
-                return self._make_request(url, params, account)
+                result = self._make_request(url, params, account)
+                self._record_success()  # P1: 成功，重置断路器
+                return result
 
             except RateLimitError as e:
                 self.account_pool.mark_rate_limited(account, e.retry_after)
+                self._record_failure()  # P1
                 logger.warning(f"账号 #{account.index} 被限速 (尝试 {attempt+1}/{self.max_retries})")
 
             except AuthError as e:
                 self.account_pool.mark_dead(account, str(e))
+                self._record_failure()  # P1
                 logger.error(f"账号 #{account.index} 认证失败: {e}")
 
             except XClientError as e:
+                self._record_failure()  # P1
                 logger.warning(f"请求失败 (尝试 {attempt+1}/{self.max_retries}): {e}")
                 if attempt < self.max_retries - 1:
                     wait = (attempt + 1) * 2
@@ -307,7 +375,8 @@ class XClient:
         if username in self._user_id_cache:
             return self._user_id_cache[username]
 
-        query_id = QUERY_IDS["UserByScreenName"]
+        # P2: 使用可配置的 query_ids 和 features
+        query_id = self._query_ids["UserByScreenName"]
         url = f"{self.GRAPHQL_BASE}/{query_id}/UserByScreenName"
 
         variables = {
@@ -317,7 +386,7 @@ class XClient:
 
         params = {
             "variables": json.dumps(variables, separators=(',', ':')),
-            "features": json.dumps(DEFAULT_FEATURES, separators=(',', ':')),
+            "features": json.dumps(self._features, separators=(',', ':')),
             "fieldToggles": json.dumps(DEFAULT_FIELD_TOGGLES, separators=(',', ':')),
         }
 
@@ -353,7 +422,8 @@ class XClient:
             - tweets: Tweet 对象列表
             - next_cursor: 下一页游标，None 表示没有更多
         """
-        query_id = QUERY_IDS["UserTweets"]
+        # P2: 使用可配置的 query_ids 和 features
+        query_id = self._query_ids["UserTweets"]
         url = f"{self.GRAPHQL_BASE}/{query_id}/UserTweets"
 
         variables = {
@@ -370,7 +440,7 @@ class XClient:
 
         params = {
             "variables": json.dumps(variables, separators=(',', ':')),
-            "features": json.dumps(DEFAULT_FEATURES, separators=(',', ':')),
+            "features": json.dumps(self._features, separators=(',', ':')),
             "fieldToggles": json.dumps(DEFAULT_FIELD_TOGGLES, separators=(',', ':')),
         }
 

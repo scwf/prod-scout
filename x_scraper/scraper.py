@@ -48,6 +48,10 @@ class XScraper:
         max_retries: int = 3,
         include_retweets: bool = False,
         include_replies: bool = False,
+        circuit_breaker_threshold: int = 5,
+        circuit_breaker_cooldown: int = 60,
+        query_ids: Optional[Dict[str, str]] = None,
+        features: Optional[Dict[str, Any]] = None,
     ):
         """
         初始化 X 爬取器。
@@ -61,6 +65,10 @@ class XScraper:
             max_retries: 最大重试次数
             include_retweets: 是否包含转推
             include_replies: 是否包含回复
+            circuit_breaker_threshold: 断路器阈值 (连续失败次数)
+            circuit_breaker_cooldown: 断路器冷却时间 (秒)
+            query_ids: 自定义 GraphQL Query IDs
+            features: 自定义 GraphQL Features
         """
         self.account_pool = account_pool
         self.max_tweets_per_user = max_tweets_per_user
@@ -73,6 +81,10 @@ class XScraper:
             account_pool=account_pool,
             timeout=request_timeout,
             max_retries=max_retries,
+            circuit_breaker_threshold=circuit_breaker_threshold,
+            circuit_breaker_cooldown=circuit_breaker_cooldown,
+            query_ids=query_ids,
+            features=features,
         )
 
     @classmethod
@@ -118,6 +130,24 @@ class XScraper:
                 )
 
         # ─── 读取其他配置 ───
+        # P2: 加载可配置的 Query IDs 和 Features (覆盖代码中的默认值)
+        query_ids = None
+        features = None
+        query_ids_str = config.get('x_scraper', 'query_ids', fallback='').strip()
+        features_str = config.get('x_scraper', 'features', fallback='').strip()
+        if query_ids_str:
+            try:
+                query_ids = json.loads(query_ids_str)
+                logger.info(f"从配置加载自定义 Query IDs: {list(query_ids.keys())}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"解析 query_ids 配置失败: {e}，使用默认值")
+        if features_str:
+            try:
+                features = json.loads(features_str)
+                logger.info(f"从配置加载自定义 Features ({len(features)} 个)")
+            except json.JSONDecodeError as e:
+                logger.warning(f"解析 features 配置失败: {e}，使用默认值")
+
         return cls(
             account_pool=pool,
             max_tweets_per_user=config.getint('x_scraper', 'max_tweets_per_user', fallback=20),
@@ -133,6 +163,11 @@ class XScraper:
             max_retries=config.getint('x_scraper', 'max_retries', fallback=3),
             include_retweets=config.getboolean('x_scraper', 'include_retweets', fallback=False),
             include_replies=config.getboolean('x_scraper', 'include_replies', fallback=False),
+            # P1 & P2: 新增参数
+            circuit_breaker_threshold=config.getint('x_scraper', 'circuit_breaker_threshold', fallback=5),
+            circuit_breaker_cooldown=config.getint('x_scraper', 'circuit_breaker_cooldown', fallback=60),
+            query_ids=query_ids,
+            features=features,
         )
 
     # ─── 核心 API ───

@@ -897,6 +897,96 @@ class TestReviewFixes:
 
 
 # ============================================================
+# 单元测试: 抓取风险增强 (P1/P2/P3)
+# ============================================================
+
+class TestRiskEnhancements:
+    """验证断路器、可配置 Query IDs/Features、UA 轮换"""
+
+    def test_circuit_breaker_triggers(self):
+        """P1: 连续失败达到阈值时断路器应打开"""
+        from x_scraper.client import XClient
+
+        pool = AccountPool([("tok", "ct0")])
+        client = XClient(
+            account_pool=pool,
+            circuit_breaker_threshold=3,
+            circuit_breaker_cooldown=10,
+        )
+
+        # 模拟 3 次连续失败
+        for _ in range(3):
+            client._record_failure()
+
+        assert client._cb_consecutive_failures == 3
+        assert client._cb_open_until > 0, "断路器应已打开"
+
+    def test_circuit_breaker_resets_on_success(self):
+        """P1: 成功后断路器应重置"""
+        from x_scraper.client import XClient
+
+        pool = AccountPool([("tok", "ct0")])
+        client = XClient(account_pool=pool, circuit_breaker_threshold=3)
+
+        # 模拟 2 次失败 + 1 次成功
+        client._record_failure()
+        client._record_failure()
+        assert client._cb_consecutive_failures == 2
+
+        client._record_success()
+        assert client._cb_consecutive_failures == 0
+        assert client._cb_open_until == 0
+
+    def test_custom_query_ids(self):
+        """P2: 自定义 Query IDs 应覆盖默认值"""
+        from x_scraper.client import XClient, QUERY_IDS
+
+        pool = AccountPool([("tok", "ct0")])
+        custom_ids = {"UserTweets": "NEW_QUERY_ID_123"}
+        client = XClient(account_pool=pool, query_ids=custom_ids)
+
+        # UserTweets 应被覆盖
+        assert client._query_ids["UserTweets"] == "NEW_QUERY_ID_123"
+        # UserByScreenName 应保持默认
+        assert client._query_ids["UserByScreenName"] == QUERY_IDS["UserByScreenName"]
+
+    def test_custom_features(self):
+        """P2: 自定义 Features 应合并到默认值"""
+        from x_scraper.client import XClient, DEFAULT_FEATURES
+
+        pool = AccountPool([("tok", "ct0")])
+        custom_features = {"new_feature_flag": True, "rweb_tipjar_consumption_enabled": False}
+        client = XClient(account_pool=pool, features=custom_features)
+
+        # 新 flag 应存在
+        assert client._features["new_feature_flag"] is True
+        # 覆盖的 flag 应生效
+        assert client._features["rweb_tipjar_consumption_enabled"] is False
+        # 其他默认 flag 应保留
+        assert "view_counts_everywhere_api_enabled" in client._features
+
+    def test_ua_rotation(self):
+        """P3: 每次构建请求头应使用不同 UA（概率性）"""
+        from x_scraper.client import XClient, UA_POOL
+
+        pool = AccountPool([("tok", "ct0")])
+        client = XClient(account_pool=pool)
+        account = pool.accounts[0]
+
+        # 多次构建请求头，收集 UA
+        uas = set()
+        for _ in range(30):
+            headers = client._build_headers(account)
+            uas.add(headers["user-agent"])
+
+        # 应该看到多个不同的 UA (概率性测试，30 次中至少应有 2 个不同)
+        assert len(uas) >= 2, f"UA 应有变化，但只看到: {uas}"
+        # 所有 UA 应来自 UA_POOL
+        for ua in uas:
+            assert ua in UA_POOL, f"UA '{ua}' 不在 UA_POOL 中"
+
+
+# ============================================================
 # 集成测试: 端到端 (需要真实凭证和网络)
 # ============================================================
 
