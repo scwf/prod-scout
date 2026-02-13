@@ -772,7 +772,7 @@ class TestReviewFixes:
 
     def test_graphql_error_detected(self):
         """Task 3: HTTP 200 + GraphQL errors 应被检测"""
-        from x_scraper.client import XClient, XClientError
+        from x_scraper.client import XClient, RateLimitError
 
         pool = AccountPool([("test_token", "test_ct0")])
         client = XClient(account_pool=pool)
@@ -786,7 +786,7 @@ class TestReviewFixes:
 
         with patch.object(client, '_curl_requests' if client._use_curl_cffi else '_requests') as mock_req:
             mock_req.get.return_value = mock_response
-            with pytest.raises(XClientError, match="GraphQL error"):
+            with pytest.raises(RateLimitError):
                 account = pool.get_next()
                 client._make_request("https://x.com/test", {}, account)
 
@@ -809,6 +809,25 @@ class TestReviewFixes:
             account = pool.get_next()
             result = client._make_request("https://x.com/test", {}, account)
             assert "data" in result  # 有 data 时应正常返回
+
+    def test_graphql_auth_error_detected(self):
+        """Task 3: HTTP 200 + GraphQL auth 错误应映射为 AuthError"""
+        from x_scraper.client import XClient, AuthError
+
+        pool = AccountPool([("test_token", "test_ct0")])
+        client = XClient(account_pool=pool)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "errors": [{"message": "Could not authenticate you", "code": 89}]
+        }
+
+        with patch.object(client, '_curl_requests' if client._use_curl_cffi else '_requests') as mock_req:
+            mock_req.get.return_value = mock_response
+            with pytest.raises(AuthError):
+                account = pool.get_next()
+                client._make_request("https://x.com/test", {}, account)
 
     def test_pinned_tweet_dedup(self):
         """Task 4: 置顶推文与时间线推文重复时应去重"""
@@ -936,6 +955,23 @@ class TestRiskEnhancements:
         client._record_success()
         assert client._cb_consecutive_failures == 0
         assert client._cb_open_until == 0
+
+    def test_circuit_breaker_stops_retry_loop_when_opened(self):
+        """P1: 本轮重试中触发断路器后不应继续尝试后续 attempt"""
+        from x_scraper.client import XClient, XClientError
+
+        pool = AccountPool([("tok", "ct0")])
+        client = XClient(
+            account_pool=pool,
+            max_retries=3,
+            circuit_breaker_threshold=1,
+            circuit_breaker_cooldown=10,
+        )
+
+        with patch.object(client, "_make_request", side_effect=XClientError("boom")) as mock_make:
+            result = client._request_with_retry("https://x.com/test", {})
+            assert result is None
+            assert mock_make.call_count == 1
 
     def test_custom_query_ids(self):
         """P2: 自定义 Query IDs 应覆盖默认值"""
