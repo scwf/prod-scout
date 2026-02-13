@@ -28,11 +28,11 @@ auth_credentials =
 # 每个用户抓取的推文上限
 max_tweets_per_user = 20
 # 请求间延迟 (秒)
-request_delay_min = 3
-request_delay_max = 8
+request_delay_min = 15
+request_delay_max = 25
 # 用户切换间延迟 (秒)
-user_switch_delay_min = 10
-user_switch_delay_max = 30
+user_switch_delay_min = 30
+user_switch_delay_max = 60
 # 请求超时 (秒)
 request_timeout = 30
 # 最大重试次数

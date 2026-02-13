@@ -106,14 +106,18 @@ All options go under the `[x_scraper]` section in `config.ini`:
 | `enabled` | `false` | Enable x_scraper to replace RSSHub for X fetching |
 | `auth_credentials` | *(empty)* | Credential pairs (`token:ct0;token2:ct0_2`). Falls back to `rsshub-docker.env` if empty |
 | `max_tweets_per_user` | `20` | Maximum tweets to fetch per user |
-| `request_delay_min` | `3` | Minimum delay between API requests (seconds) |
-| `request_delay_max` | `8` | Maximum delay between API requests (seconds) |
-| `user_switch_delay_min` | `15` | Minimum delay when switching between users (seconds) |
-| `user_switch_delay_max` | `40` | Maximum delay when switching between users (seconds) |
+| `request_delay_min` | `15` | Minimum delay between API requests (seconds) |
+| `request_delay_max` | `25` | Maximum delay between API requests (seconds) |
+| `user_switch_delay_min` | `30` | Minimum delay when switching between users (seconds) |
+| `user_switch_delay_max` | `60` | Maximum delay when switching between users (seconds) |
 | `request_timeout` | `30` | HTTP request timeout (seconds) |
 | `max_retries` | `3` | Maximum retry attempts per request |
 | `include_retweets` | `false` | Include retweets in results |
 | `include_replies` | `false` | Include replies to other users (self-reply threads are always kept) |
+| `circuit_breaker_threshold` | `5` | Consecutive failures before pausing requests |
+| `circuit_breaker_cooldown` | `60` | Circuit breaker pause duration (seconds) |
+| `query_ids` | *(empty)* | Custom GraphQL Query IDs (JSON) |
+| `features` | *(empty)* | Custom GraphQL Features (JSON) |
 
 ## 🔗 Pipeline Integration
 
