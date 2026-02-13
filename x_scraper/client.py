@@ -80,16 +80,24 @@ DEFAULT_FIELD_TOGGLES = {
     "withArticlePlainText": False,
 }
 
-# ─── P3: User-Agent 池 ───
-# 多个真实 Chrome UA，每次请求随机选取，降低被指纹聚类的风险
-UA_POOL = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+# ─── P3: User-Agent + TLS 指纹配置 ───
+# 每次请求从同一个 profile 同时选择 UA 和 impersonate，避免两者不一致。
+UA_PROFILES = [
+    {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "impersonate": "chrome131",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "impersonate": "chrome131",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "impersonate": "chrome131",
+    },
 ]
+# 兼容现有测试/调用方
+UA_POOL = [p["user_agent"] for p in UA_PROFILES]
 
 
 class XClientError(Exception):
@@ -175,7 +183,11 @@ class XClient:
                 "安装方法: pip install curl_cffi"
             )
 
-    def _build_headers(self, account: AccountState) -> Dict[str, str]:
+    def _pick_client_profile(self) -> Dict[str, str]:
+        """选择一个 UA/TLS profile。"""
+        return random.choice(UA_PROFILES)
+
+    def _build_headers(self, account: AccountState, user_agent: Optional[str] = None) -> Dict[str, str]:
         """构造请求头 (P3: 每次请求随机选取 UA)"""
         return {
             "authorization": WEB_BEARER_TOKEN,
@@ -184,7 +196,7 @@ class XClient:
             "x-twitter-auth-type": "OAuth2Session",
             "x-twitter-client-language": "en",
             "content-type": "application/json",
-            "user-agent": random.choice(UA_POOL),
+            "user-agent": user_agent or random.choice(UA_POOL),
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9",
             "referer": "https://x.com/",
@@ -220,7 +232,8 @@ class XClient:
             AuthError: 401/403 状态码
             XClientError: 其他错误
         """
-        headers = self._build_headers(account)
+        profile = self._pick_client_profile()
+        headers = self._build_headers(account, user_agent=profile["user_agent"])
         cookies = self._build_cookies(account)
 
         try:
@@ -230,7 +243,7 @@ class XClient:
                     params=params,
                     headers=headers,
                     cookies=cookies,
-                    impersonate="chrome131",
+                    impersonate=profile["impersonate"],
                     timeout=self.timeout,
                 )
             else:
@@ -247,9 +260,27 @@ class XClient:
             if status == 200:
                 data = response.json()
                 # Task 3: 检测 GraphQL 业务错误 (HTTP 200 但返回 errors)
-                if "errors" in data and not data.get("data"):
-                    errors = data["errors"]
-                    error_msgs = "; ".join(e.get("message", "") for e in errors[:3])
+                errors = data.get("errors") or []
+                if errors and not data.get("data"):
+                    first = errors[0] if isinstance(errors[0], dict) else {}
+                    error_code = first.get("code")
+                    error_msg = first.get("message", "")
+                    error_text = f"{error_msg}".lower()
+                    error_msgs = "; ".join(
+                        e.get("message", str(e)) if isinstance(e, dict) else str(e)
+                        for e in errors[:3]
+                    )
+
+                    # GraphQL 业务限流: code=88 或 message 含 rate limit
+                    if error_code == 88 or "rate limit" in error_text:
+                        raise RateLimitError(900)
+
+                    # GraphQL 业务鉴权失败: 常见 code 或 message 关键字
+                    if error_code in (32, 64, 89):
+                        raise AuthError(f"GraphQL auth error: {error_msgs}")
+                    if any(k in error_text for k in ("unauthorized", "forbidden", "auth")):
+                        raise AuthError(f"GraphQL auth error: {error_msgs}")
+
                     raise XClientError(f"GraphQL error: {error_msgs}")
                 return data
             elif status == 429:
@@ -297,8 +328,13 @@ class XClient:
         self._cb_consecutive_failures = 0
         self._cb_open_until = 0
 
-    def _record_failure(self):
-        """P1: 记录请求失败，判断是否触发断路器"""
+    def _record_failure(self) -> bool:
+        """
+        P1: 记录请求失败，判断是否触发断路器。
+
+        Returns:
+            True = 本次调用触发了断路器
+        """
         self._cb_consecutive_failures += 1
         if self._cb_consecutive_failures >= self._cb_threshold:
             self._cb_open_until = time.time() + self._cb_cooldown
@@ -306,6 +342,8 @@ class XClient:
                 f"⚡ 断路器触发: 连续失败 {self._cb_consecutive_failures} 次，"
                 f"暂停请求 {self._cb_cooldown}s"
             )
+            return True
+        return False
 
     def _request_with_retry(
         self,
@@ -341,17 +379,23 @@ class XClient:
 
             except RateLimitError as e:
                 self.account_pool.mark_rate_limited(account, e.retry_after)
-                self._record_failure()  # P1
+                cb_opened = self._record_failure()  # P1
                 logger.warning(f"账号 #{account.index} 被限速 (尝试 {attempt+1}/{self.max_retries})")
+                if cb_opened:
+                    break
 
             except AuthError as e:
                 self.account_pool.mark_dead(account, str(e))
-                self._record_failure()  # P1
+                cb_opened = self._record_failure()  # P1
                 logger.error(f"账号 #{account.index} 认证失败: {e}")
+                if cb_opened:
+                    break
 
             except XClientError as e:
-                self._record_failure()  # P1
+                cb_opened = self._record_failure()  # P1
                 logger.warning(f"请求失败 (尝试 {attempt+1}/{self.max_retries}): {e}")
+                if cb_opened:
+                    break
                 if attempt < self.max_retries - 1:
                     wait = (attempt + 1) * 2
                     time.sleep(wait)
