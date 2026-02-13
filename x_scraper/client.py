@@ -219,10 +219,21 @@ class XClient:
             status = response.status_code
 
             if status == 200:
-                return response.json()
+                data = response.json()
+                # Task 3: 检测 GraphQL 业务错误 (HTTP 200 但返回 errors)
+                if "errors" in data and not data.get("data"):
+                    errors = data["errors"]
+                    error_msgs = "; ".join(e.get("message", "") for e in errors[:3])
+                    raise XClientError(f"GraphQL error: {error_msgs}")
+                return data
             elif status == 429:
-                # 速率限制
-                retry_after = int(response.headers.get("retry-after", 900))
+                # Task 2: 健壮解析 retry-after
+                raw_retry = response.headers.get("retry-after", "")
+                try:
+                    retry_after = int(raw_retry)
+                except (ValueError, TypeError):
+                    logger.warning(f"无法解析 retry-after 头: '{raw_retry}'，使用默认 900s")
+                    retry_after = 900
                 raise RateLimitError(retry_after)
             elif status in (401, 403):
                 raise AuthError(f"HTTP {status}: Token 可能已过期或被封")
@@ -432,27 +443,33 @@ class XClient:
                 logger.debug(f"第 {page} 页无推文，停止分页")
                 break
 
-            # 日期过滤 & 转推过滤
-            # 注意: X 的时间线不保证严格倒序 (如置顶推文可能出现在顶部)
-            # 因此不能遇到一条旧推文就立即停止，而是跟踪整页中是否还有符合条件的推文
-            page_has_valid = False
+            # 日期过滤 & 业务过滤 (转推/回复)
+            # 重要: 分页终止判断只看日期，不受转推/回复过滤影响
+            # 否则一个全是转推的页面会被误判为"整页过旧"而提前终止
+            page_has_new_enough = False  # 本页是否有日期范围内的推文 (不论是否被业务过滤)
             for tweet in tweets:
+                # 先做日期判断 (影响分页终止)
+                tweet_in_date_range = True
+                if cutoff_date and tweet.created_at:
+                    if tweet.created_at < cutoff_date:
+                        tweet_in_date_range = False
+                
+                if tweet_in_date_range:
+                    page_has_new_enough = True
+
+                # 再做业务过滤 (只影响是否加入结果，不影响分页终止)
+                if not tweet_in_date_range:
+                    continue
                 if not include_retweets and tweet.is_retweet:
                     continue
 
-                if cutoff_date and tweet.created_at:
-                    if tweet.created_at < cutoff_date:
-                        # 跳过过旧的推文，但继续处理本页剩余推文
-                        continue
-
-                page_has_valid = True
                 all_tweets.append(tweet)
 
                 if len(all_tweets) >= limit:
                     break
 
-            # 如果整页都没有符合日期的推文，说明已经翻到更早的时间段了
-            if cutoff_date and not page_has_valid:
+            # 如果整页推文都早于 cutoff，说明已翻到更早的时间段
+            if cutoff_date and not page_has_new_enough:
                 logger.debug(f"整页推文均早于 {since_date}，停止分页")
                 break
 

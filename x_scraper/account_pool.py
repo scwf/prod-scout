@@ -123,10 +123,15 @@ class AccountPool:
             with open(env_file_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
-                    if line.startswith("TWITTER_AUTH_TOKEN"):
-                        auth_token = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    elif line.startswith("TWITTER_CT0"):
-                        ct0 = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, _, value = line.partition('=')
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key == "TWITTER_AUTH_TOKEN":
+                        auth_token = value
+                    elif key in ("TWITTER_CT0", "XCSRF_TOKEN"):
+                        ct0 = value
         except FileNotFoundError:
             raise FileNotFoundError(f"找不到环境文件: {env_file_path}")
 
@@ -207,7 +212,7 @@ class AccountPool:
                 "status": status,
                 "request_count": a.request_count,
                 "cooldown_remaining": round(a.cooldown_remaining, 1),
-                "auth_token_prefix": a.auth_token[:8] + "...",
+                "auth_token_hint": a.auth_token[:4] + "****",
             })
         return result
 

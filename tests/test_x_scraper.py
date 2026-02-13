@@ -744,6 +744,159 @@ class TestXScraper:
 
 
 # ============================================================
+# 单元测试: Code Review 修复验证
+# ============================================================
+
+class TestReviewFixes:
+    """验证 Code Review 发现的 Bug 修复"""
+
+    def test_retry_after_non_integer(self):
+        """Task 2: retry-after 为 HTTP-date 时不应崩溃"""
+        from x_scraper.client import XClient, RateLimitError
+
+        pool = AccountPool([("test_token", "test_ct0")])
+        client = XClient(account_pool=pool, max_retries=1)
+
+        # mock 一个 429 响应，retry-after 是 HTTP-date 格式
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.headers = {"retry-after": "Thu, 01 Jan 2099 00:00:00 GMT"}
+
+        with patch.object(client, '_curl_requests' if client._use_curl_cffi else '_requests') as mock_req:
+            mock_req.get.return_value = mock_response
+            # 应该抛出 RateLimitError（使用默认 900s），而不是 ValueError
+            with pytest.raises(RateLimitError) as exc_info:
+                account = pool.get_next()
+                client._make_request("https://x.com/test", {}, account)
+            assert exc_info.value.retry_after == 900
+
+    def test_graphql_error_detected(self):
+        """Task 3: HTTP 200 + GraphQL errors 应被检测"""
+        from x_scraper.client import XClient, XClientError
+
+        pool = AccountPool([("test_token", "test_ct0")])
+        client = XClient(account_pool=pool)
+
+        # mock 一个 HTTP 200 但内容含 errors 的响应
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "errors": [{"message": "Rate limit exceeded", "code": 88}]
+        }
+
+        with patch.object(client, '_curl_requests' if client._use_curl_cffi else '_requests') as mock_req:
+            mock_req.get.return_value = mock_response
+            with pytest.raises(XClientError, match="GraphQL error"):
+                account = pool.get_next()
+                client._make_request("https://x.com/test", {}, account)
+
+    def test_graphql_error_with_partial_data_ok(self):
+        """Task 3: HTTP 200 + errors + data 应正常返回 (某些 field 错误但主数据可用)"""
+        from x_scraper.client import XClient
+
+        pool = AccountPool([("test_token", "test_ct0")])
+        client = XClient(account_pool=pool)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "errors": [{"message": "some warning"}],
+            "data": {"user": {"result": {"rest_id": "123"}}}
+        }
+
+        with patch.object(client, '_curl_requests' if client._use_curl_cffi else '_requests') as mock_req:
+            mock_req.get.return_value = mock_response
+            account = pool.get_next()
+            result = client._make_request("https://x.com/test", {}, account)
+            assert "data" in result  # 有 data 时应正常返回
+
+    def test_pinned_tweet_dedup(self):
+        """Task 4: 置顶推文与时间线推文重复时应去重"""
+        parser = TweetParser()
+        # 构造一个 pinned + timeline 都包含同一 tweet 的响应
+        response = {
+            "data": {
+                "user": {
+                    "result": {
+                        "timeline_v2": {
+                            "timeline": {
+                                "instructions": [
+                                    {
+                                        "type": "TimelinePinEntry",
+                                        "entry": {
+                                            "entryId": "tweet-1234567890",
+                                            "content": {
+                                                "entryType": "TimelineTimelineItem",
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": SAMPLE_TWEET_RESULT,
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "type": "TimelineAddEntries",
+                                        "entries": [
+                                            {
+                                                "entryId": "tweet-1234567890",
+                                                "content": {
+                                                    "entryType": "TimelineTimelineItem",
+                                                    "itemContent": {
+                                                        "tweet_results": {
+                                                            "result": SAMPLE_TWEET_RESULT,
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tweets, _ = parser.parse_timeline(response)
+        # 应该只有 1 条，不是 2 条
+        assert len(tweets) == 1
+        assert tweets[0].id == "1234567890"
+
+    def test_env_exact_key_match(self, tmp_path):
+        """Task 5: .env 应精确匹配 key，不匹配带后缀的键"""
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            'TWITTER_AUTH_TOKEN_BACKUP="wrong_token"\n'
+            'TWITTER_AUTH_TOKEN="correct_token"\n'
+            'TWITTER_CT0="correct_ct0"\n'
+        )
+        pool = AccountPool.from_env_file(str(env_file))
+        a = pool.get_next()
+        assert a.auth_token == "correct_token"
+        assert a.ct0 == "correct_ct0"
+
+    def test_env_xcsrf_token_fallback(self, tmp_path):
+        """Task 5: 支持 XCSRF_TOKEN 作为 ct0 的替代键"""
+        env_file = tmp_path / "test.env"
+        env_file.write_text(
+            'TWITTER_AUTH_TOKEN="my_token"\n'
+            'XCSRF_TOKEN="my_csrf"\n'
+        )
+        pool = AccountPool.from_env_file(str(env_file))
+        a = pool.get_next()
+        assert a.ct0 == "my_csrf"
+
+    def test_status_token_masked(self):
+        """Task 6: get_status 中的 token 应被脱敏"""
+        pool = AccountPool([("abcdefghijklmnop", "ct0_value")])
+        status = pool.get_status()
+        hint = status[0]["auth_token_hint"]
+        assert hint == "abcd****"
+        assert "abcdefgh" not in hint  # 不应暴露 8 字符前缀
+
+
+# ============================================================
 # 集成测试: 端到端 (需要真实凭证和网络)
 # ============================================================
 

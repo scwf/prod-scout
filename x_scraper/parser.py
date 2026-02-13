@@ -63,6 +63,7 @@ class TweetParser:
         """
         tweets = []
         next_cursor = None
+        seen_ids = set()  # Task 4: 去重 (置顶推文可能与时间线重复)
 
         try:
             # 通用路径：data.user.result.timeline_v2.timeline.instructions
@@ -87,7 +88,8 @@ class TweetParser:
                         # 推文条目
                         if entry_id.startswith("tweet-"):
                             tweet = self._parse_tweet_entry(entry)
-                            if tweet:
+                            if tweet and tweet.id not in seen_ids:
+                                seen_ids.add(tweet.id)
                                 tweets.append(tweet)
 
                         # 分页游标
@@ -102,13 +104,17 @@ class TweetParser:
                         # 置顶推文模块 (moduleItems)
                         elif entry_id.startswith("profile-conversation-") or entry_id.startswith("homeConversation-"):
                             module_tweets = self._parse_module_entry(entry)
-                            tweets.extend(module_tweets)
+                            for t in module_tweets:
+                                if t.id not in seen_ids:
+                                    seen_ids.add(t.id)
+                                    tweets.append(t)
 
                 elif inst_type == "TimelinePinEntry":
                     # 置顶推文
                     entry = instruction.get("entry", {})
                     tweet = self._parse_tweet_entry(entry)
-                    if tweet:
+                    if tweet and tweet.id not in seen_ids:
+                        seen_ids.add(tweet.id)
                         tweets.append(tweet)
 
         except Exception as e:

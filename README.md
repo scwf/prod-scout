@@ -24,6 +24,12 @@ prod-scout/
 │   └── utils/              # General utilities
 │       ├── web_crawler.py      # Web page fetching + Screenshot/PDF
 │       └── content_fetcher.py  # Deep content extraction and embedded resource handling
+├── x_scraper/              # [New] Direct X/Twitter GraphQL API scraper (replaces RSSHub for X)
+│   ├── client.py           # GraphQL API client with TLS fingerprint impersonation
+│   ├── models.py           # Tweet data models with Pipeline-compatible output
+│   ├── parser.py           # GraphQL response parser
+│   ├── account_pool.py     # Multi-credential rotation & cooldown manager
+│   └── scraper.py          # High-level orchestrator & CLI entry point
 ├── daft_scout/             # [Daft Version] High-performance distributed Scout
 │   └── pipeline.py         # Daft data flow entry point
 ├── video_scribe/           # [General] Video transcription and subtitle optimization module
