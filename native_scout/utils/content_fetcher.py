@@ -39,7 +39,10 @@ class LinkExtractor:
     """从文本中提取和分类URL"""
     
     # 需要跳过的域名（社交媒体自身的链接，不作为博客处理）
-    SKIP_DOMAINS = ['twitter.com', 'x.com', 't.co', 'pic.twitter.com']
+    SKIP_DOMAINS = [
+        'twitter.com', 'x.com', 't.co', 'pic.twitter.com',
+        'open.spotify.com', 'podcasts.apple.com'
+    ]
     
     # YouTube相关域名
     YOUTUBE_DOMAINS = ['youtube.com', 'youtu.be', 'www.youtube.com', 'm.youtube.com']
