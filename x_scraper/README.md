@@ -56,8 +56,8 @@ Add to `config.ini`:
 ```ini
 [x_scraper]
 enabled = true
-# Multiple credential pairs separated by semicolons
-auth_credentials = auth_token_1:ct0_1;auth_token_2:ct0_2
+# Multiple credential pairs separated by | (avoid ; as it's a comment in INI)
+auth_credentials = auth_token_1:ct0_1|auth_token_2:ct0_2
 ```
 
 > 💡 **How to get `auth_token` and `ct0`**: Log into [x.com](https://x.com) in your browser, open DevTools → Application → Cookies → `https://x.com`, and copy the values of `auth_token` and `ct0`.
@@ -104,7 +104,7 @@ All options go under the `[x_scraper]` section in `config.ini`:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `enabled` | `false` | Enable x_scraper to replace RSSHub for X fetching |
-| `auth_credentials` | *(empty)* | Credential pairs (`token:ct0;token2:ct0_2`). Falls back to `rsshub-docker.env` if empty |
+| `auth_credentials` | *(empty)* | Credential pairs (`token:ct0|token2:ct0_2`). Falls back to `rsshub-docker.env` if empty |
 | `max_tweets_per_user` | `20` | Maximum tweets to fetch per user |
 | `request_delay_min` | `15` | Minimum delay between API requests (seconds) |
 | `request_delay_max` | `25` | Maximum delay between API requests (seconds) |

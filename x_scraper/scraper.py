@@ -313,7 +313,7 @@ def _load_config() -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     config.optionxform = str  # 保持 key 大小写
     project_root = _find_project_root()
-    config_path = os.path.join(project_root, "config.ini")
+    config_path = os.path.join(project_root, "config-test.ini")
     config.read(config_path, encoding='utf-8')
     return config
 

@@ -239,7 +239,7 @@ enabled = true
 # 账号凭证（支持多个，用分号分隔进行轮换）
 # 格式: auth_token:ct0
 # 可配置多个凭证实现轮换，降低风控风险
-auth_credentials = AUTH_TOKEN_1:CT0_1;AUTH_TOKEN_2:CT0_2
+auth_credentials = AUTH_TOKEN_1:CT0_1|AUTH_TOKEN_2:CT0_2
 
 # 每个用户抓取的推文上限
 max_tweets_per_user = 20

@@ -23,7 +23,7 @@ x_request_delay_max = 60
 # 是否启用 x_scraper 替代 RSSHub 方式获取 X 推文
 enabled = false
 # 账号凭证（留空则自动从 rsshub-docker.env 读取）
-# 格式: auth_token1:ct01;auth_token2:ct02
+# 格式: auth_token1:ct01|auth_token2:ct02 （用 | 分隔，避免 INI 中 ; 被当作注释）
 auth_credentials =
 # 每个用户抓取的推文上限
 max_tweets_per_user = 20

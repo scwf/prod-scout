@@ -17,20 +17,30 @@ Prod Scout 是一个专注于 Data & AI 领域（也可扩展应用到其他领�
 ```
 prod-scout/
 ├── config.ini              # 配置文件（LLM API、订阅源等）
-├── rsshub-docker.env       # RSSHub Docker 环境变量，用于抓取X，需配置TWITTER_AUTH_TOKEN等
+├── rsshub-docker.env       # RSSHub Docker 环境变量（用于抓取 X，需配置 TWITTER_AUTH_TOKEN 等）
 ├── native_scout/           # [Python 原生版] 情报侦察兵（爬虫+整理）
 │   ├── pipeline.py         # 主控流水线入口
 │   ├── stages/             # 独立的流水线阶段（Fetch, Enrich, Organize, Write）
 │   └── utils/              # 通用工具
 │       ├── web_crawler.py      # Web 页面抓取 + 截图/PDF
 │       └── content_fetcher.py  # 深度内容提取与嵌入资源处理
+├── x_scraper/              # [新增] 直接调用 X/Twitter GraphQL API 的爬虫（替代 RSSHub 抓取 X）
+│   ├── client.py           # GraphQL API 客户端，支持 TLS 指纹模拟
+│   ├── models.py           # 推文数据模型，输出兼容 Pipeline
+│   ├── parser.py           # GraphQL 响应解析器
+│   ├── account_pool.py     # 多账号轮换与冷却管理
+│   └── scraper.py          # 高层编排器与 CLI 入口
 ├── daft_scout/             # [Daft 版] 高性能分布式侦察兵
 │   └── pipeline.py         # Daft 数据流入口
 ├── video_scribe/           # [通用] 视频转录与字幕优化模块
 │   ├── core.py             # 转录核心逻辑
 │   ├── optimize.py         # LLM 字幕优化与对齐
 │   └── run_video_scribe.py # 独立运行脚本
-├── data/                   # 输出目录（报告、截图、转录文件等）
+├── data/                   # 输出目录
+│   └── {batch_timestamp}/  # 每次运行创建独立的批次目录
+│       ├── raw/            # 原始数据备份 + 视频转录
+│       ├── By-Domain/      # 按领域分组的帖子
+│       └── By-Entity/      # 按实体分组的帖子
 └── README.md
 ```
 
@@ -205,37 +215,57 @@ http://127.0.0.1:1200/twitter/user/{用户名}
 
 ---
 
-## 📝 输出示例
+## 📝 输出结构
+
+每次流水线运行会在 `data/` 下创建一个批次目录：
+
+```
+data/20260212_210000/
+├── raw/                              # 原始备份与视频转录
+│   ├── X_OpenAI.json                 # X_OpenAI 的原始帖子
+│   ├── WX_机器之心.json               # 微信公众号的原始帖子
+│   ├── YT_Databricks.json            # YouTube 的原始帖子
+│   └── YT_Databricks_dQw4w9WgXcQ/    # 视频转录文件
+│       ├── dQw4w9WgXcQ.srt
+│       └── dQw4w9WgXcQ.txt
+├── By-Domain/                        # 按领域分组的帖子
+│   ├── 大模型技术和产品/
+│   │   ├── high/                     # 质量分 >= 4
+│   │   │   ├── X_OpenAI_2026-02-04_e4be7e.md
+│   │   │   └── WX_机器之心_2026-02-05_a3b8d1.md
+│   │   ├── pending/                  # 质量分 2-3
+│   │   └── excluded/                 # 质量分 <= 1
+│   ├── AI平台和框架/
+│   └── .../
+├── By-Entity/                        # 按实体分组的帖子（来自 config.ini）
+│   ├── OpenAI/
+│   ├── Google/
+│   ├── Databricks/
+│   └── Others/                       # 未匹配到配置实体的帖子
+└── batch_manifest.json               # 批次摘要与统计
+```
+
+### 帖子文件格式
+
+每个帖子保存为名为 `{source_name}_{date}_{hash}.md` 的 Markdown 文件：
 
 ```markdown
-# 🌍 Data&AI 情报周报 (Automated RSS Crawler)
+# OpenAI开始在ChatGPT中测试广告
 
-## 📂 weixin
+- **Date**: 2026-02-09
+- **Category**: 产品动态
+- **Domain**: 大模型技术和产品
+- **Quality**: ⭐⭐⭐⭐⭐ (5/5)
+- **Reason**: 重要的商业模式转变，包含全面的隐私保护和安全保障措施说明，涉及产品核心体验调整
+- **Source_Type**: X
+- **Source**: X_OpenAI
+- **Link**: https://x.com/OpenAI/status/2020936703763153010
 
-### 腾讯技术工程
+## Key Info
+1. 测试面向美国Free和Go订阅层级用户，Plus/Pro/Business/Enterprise/Education层级无广告<br>2. 广告明确标记为赞助并与有机答案视觉分离，不影响ChatGPT答案的独立性<br>3. 广告商无法访问用户聊天记录、历史、记忆或个人详情，仅接收聚合表现数据<br>4. 不向18岁以下用户展示广告，避开敏感/受监管话题（健康、心理健康、政治）<br>5. 目标是通过广告收入支持更广泛用户免费访问ChatGPT，同时保护用户信任
 
-| 日期 | 事件 | 关键信息 | 原文链接 | 详细内容 | 补充内容 | 外部链接 | 事件分类 | 所属领域 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2026-01-15 | 鹅厂员工分享AI Coding防坑技巧 | 1. 内容汇集了10位腾讯工程师的实践经验。<br>2. 核心建议包括：使用高质量模型、优先Commit备份等。 | [原文链接](https://mp.weixin.qq.com/s?...) | 文章围绕AI编程实践中的"翻车"经历与防坑技巧展开... | - | - | 观点分享 | 代码智能体（IDE） |
-| 2026-01-13 | 腾讯开源AngelSlim工具包 | 1. 腾讯混元团队升级并开源了大模型压缩算法工具包AngelSlim。<br>2. 可使大模型推理速度最高提升1.4-1.9倍。 | [原文链接](https://mp.weixin.qq.com/s?...) | 文章宣布腾讯AngelSlim工具包完成重磅升级... | - | - | 技术发布 | 大模型技术和产品 |
-
----
-
-## 📂 X
-
-### AI Researcher (Andrej)
-
-| 日期 | 事件 | 关键信息 | 原文链接 | 详细内容 | 补充内容 | 外部链接 | 事件分类 | 所属领域 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2026-02-01 | 解析 LLM 训练新范式 | 1. 视频核心观点：SFT 数据质量比数量更重要。<br>2. 深度抓取：博客文章详细论述了 "Token 效率"。<br>3. 提到未来趋势是小模型 + 高质量数据。 | [原文链接](https://x.com/karpathy/...) | Andrej 深入分析了当前大模型训练中 SFT 阶段的数据策略... | **[视频解析]** Andrej 在视频中详细解释了... (基于 Video Scribe 转录)<br>**[博客摘要]** 随附文章深入探讨了... | [karpathy.ai](https://karpathy.ai) | 深度观点 | 大模型技术和产品 |
-
-### MLflow
-
-| 日期 | 事件 | 关键信息 | 原文链接 | 详细内容 | 补充内容 | 外部链接 | 事件分类 | 所属领域 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2026-01-16 | 发布播客，探讨MLflow向GenAI平台转型 | 1. 视频内容：MLflow 团队讨论了向 AI Agent 平台的演进。<br>2. 关键挑战：评估(Evaluation)和治理(Governance)是目前企业落地的痛点。 | [原文链接](https://x.com/MLflow/...) | MLflow 团队发布了一期新的播客节目，专注于探讨... | **[视频智能转录]** 播客中详细讨论了...<br>MLflow isn't just for traditional data scientists anymore... | - | 技术发布 | AI平台和框架 |
-
----
+## Details
+OpenAI宣布开始在美国测试ChatGPT中的广告功能。测试面向Free和Go订阅层级的登录成年用户，而Plus、Pro、Business、Enterprise和Education层级不会展示广告。OpenAI强调广告不会 influence ChatGPT的答案，答案始终保持独立性和无偏见性，广告会明确标记为"赞助"并与有机答案视觉分离。在隐私保护方面，广告商无法访问用户的聊天记录、历史、记忆或个人详情，仅能接收广告表现的聚合信息（如浏览量或点击量）。系统不会向18岁以下用户或敏感/受监管话题（如健康、心理健康或政治）附近展示广告。OpenAI表示，此举旨在通过广告收入支持更广泛的用户免费访问ChatGPT，同时保持用户体验和信任。测试阶段将收集反馈以优化体验，未来计划为广告商提供更多格式和购买模式。
 ```
 
 ## 📚 更多 RSS 源

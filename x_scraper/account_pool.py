@@ -79,8 +79,8 @@ class AccountPool:
         """
         从配置字符串解析创建账号池。
 
-        格式: "auth_token1:ct01;auth_token2:ct02"
-        分号分隔多个凭证，冒号分隔 auth_token 和 ct0。
+        格式: "auth_token1:ct01|auth_token2:ct02"
+        竖线 | 分隔多个凭证（避免 INI 中分号 ; 被当作注释），冒号分隔 auth_token 和 ct0。
 
         Args:
             config_str: 配置字符串
@@ -89,7 +89,7 @@ class AccountPool:
             AccountPool 实例
         """
         credentials = []
-        for pair in config_str.split(";"):
+        for pair in config_str.split("|"):
             pair = pair.strip()
             if not pair:
                 continue

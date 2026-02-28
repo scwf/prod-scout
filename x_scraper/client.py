@@ -532,6 +532,12 @@ class XClient:
         all_tweets = []
         cursor = None
         page = 0
+        seen_tweet_ids = set()   # 跨页去重，避免置顶/重叠数据反复进入结果
+        seen_cursors = set()     # 防止 next_cursor 循环导致重复翻同一页
+        duplicate_hit_counts: Dict[str, int] = {}
+        empty_add_pages = 0      # 连续 0 新增页计数，用于避免 pinned 等导致长时间不收敛
+        max_empty_add_pages = 3
+        near_all_old_threshold = 0.9  # 当页过期占比阈值，超过则认为继续翻页收益极低
 
         # 解析 since_date
         cutoff_date = None
@@ -545,6 +551,7 @@ class XClient:
             page += 1
             # 每页上限 20, 不要设太高避免触发异常检测
             per_page = min(20, limit - len(all_tweets))
+            request_cursor = cursor
 
             tweets, next_cursor = self.get_user_tweets(
                 user_id,
@@ -554,13 +561,22 @@ class XClient:
             )
 
             if not tweets:
-                logger.debug(f"第 {page} 页无推文，停止分页")
+                logger.info(
+                    f"[X Scraper][Page {page}] cursor={request_cursor or '<start>'} "
+                    "返回 0 条，停止分页"
+                )
                 break
 
             # 日期过滤 & 业务过滤 (转推/回复)
             # 重要: 分页终止判断只看日期，不受转推/回复过滤影响
             # 否则一个全是转推的页面会被误判为"整页过旧"而提前终止
             page_has_new_enough = False  # 本页是否有日期范围内的推文 (不论是否被业务过滤)
+            raw_count = len(tweets)
+            skipped_old = 0
+            skipped_retweet = 0
+            skipped_duplicate = 0
+            added_count = 0
+            duplicate_sample_id = ""
             for tweet in tweets:
                 # 先做日期判断 (影响分页终止)
                 tweet_in_date_range = True
@@ -573,14 +589,70 @@ class XClient:
 
                 # 再做业务过滤 (只影响是否加入结果，不影响分页终止)
                 if not tweet_in_date_range:
+                    skipped_old += 1
                     continue
                 if not include_retweets and tweet.is_retweet:
+                    skipped_retweet += 1
+                    continue
+                if tweet.id in seen_tweet_ids:
+                    skipped_duplicate += 1
+                    if tweet.id:
+                        duplicate_hit_counts[tweet.id] = duplicate_hit_counts.get(tweet.id, 0) + 1
+                        if not duplicate_sample_id:
+                            duplicate_sample_id = tweet.id
                     continue
 
+                seen_tweet_ids.add(tweet.id)
                 all_tweets.append(tweet)
+                added_count += 1
 
                 if len(all_tweets) >= limit:
                     break
+
+            logger.info(
+                f"[X Scraper][Page {page}] cursor={request_cursor or '<start>'} "
+                f"next={next_cursor or '<none>'} raw={raw_count} add={added_count} "
+                f"skip_old={skipped_old} skip_rt={skipped_retweet} "
+                f"skip_dup={skipped_duplicate} total={len(all_tweets)}"
+                + (
+                    f" dup_sample={duplicate_sample_id}"
+                    if duplicate_sample_id
+                    else ""
+                )
+            )
+
+            if added_count == 0:
+                empty_add_pages += 1
+            else:
+                empty_add_pages = 0
+
+            # A) pinned/重复主导 + 无新增：立即停，避免被固定重复条目拖住
+            if (
+                added_count == 0
+                and skipped_duplicate > 0
+                and duplicate_sample_id
+                and (skipped_old + skipped_retweet + skipped_duplicate) >= raw_count
+            ):
+                logger.info(
+                    f"[X Scraper] 检测到重复条目主导且本页无新增 "
+                    f"(dup_sample={duplicate_sample_id})，停止分页"
+                )
+                break
+
+            # B) 当页几乎全是过期内容且无新增：立即停
+            old_ratio = (skipped_old / raw_count) if raw_count else 0.0
+            if added_count == 0 and cutoff_date and old_ratio >= near_all_old_threshold:
+                logger.info(
+                    f"[X Scraper] 当页过期占比过高 ({old_ratio:.0%}) 且无新增，停止分页"
+                )
+                break
+
+            if empty_add_pages >= max_empty_add_pages:
+                logger.info(
+                    f"[X Scraper] 连续 {empty_add_pages} 页无新增有效推文，"
+                    "停止分页以避免低效空跑"
+                )
+                break
 
             # 如果整页推文都早于 cutoff，说明已翻到更早的时间段
             if cutoff_date and not page_has_new_enough:
@@ -590,13 +662,29 @@ class XClient:
             # 没有下一页
             if not next_cursor:
                 break
+            if next_cursor == cursor:
+                logger.warning("检测到重复分页游标，停止翻页以避免重复抓取")
+                break
+            if next_cursor in seen_cursors:
+                logger.warning("检测到游标循环，停止翻页以避免重复抓取")
+                break
 
+            seen_cursors.add(next_cursor)
             cursor = next_cursor
 
             # 分页间延迟
             delay = random.uniform(*page_delay)
             logger.debug(f"分页延迟 {delay:.1f}s...")
             time.sleep(delay)
+
+        if duplicate_hit_counts:
+            top_dup = sorted(
+                duplicate_hit_counts.items(),
+                key=lambda kv: kv[1],
+                reverse=True,
+            )[:3]
+            top_dup_str = ", ".join(f"{tid}({cnt})" for tid, cnt in top_dup)
+            logger.info(f"[X Scraper] 跨页重复命中 Top IDs: {top_dup_str}")
 
         logger.info(f"共获取 {len(all_tweets)} 条推文 (共 {page} 页)")
         return all_tweets
