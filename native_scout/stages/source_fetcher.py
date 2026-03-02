@@ -4,6 +4,7 @@ source_fetcher.py - FetcherStage for Native Python Pipeline.
 import time
 import random
 import os
+import sys
 import json
 import requests
 import feedparser
@@ -15,6 +16,24 @@ from queue import Queue
 from common import setup_logger
 
 logger = setup_logger("source_fetcher")
+
+
+def _bridge_x_scraper_loggers():
+    """Route x_scraper loggers to the same output as source_fetcher."""
+    import logging
+
+    logger_names = [
+        "x_scraper.scraper",
+        "x_scraper.client",
+        "x_scraper.account_pool",
+    ]
+    for name in logger_names:
+        lgr = logging.getLogger(name)
+        lgr.setLevel(logging.INFO)
+        # Reuse source_fetcher handlers to keep a single log style/output.
+        lgr.handlers = logger.handlers[:]
+        lgr.propagate = False
+
 
 class FetcherStage:
     def __init__(self, fetch_queue: Queue, config, batch_timestamp):
@@ -64,10 +83,20 @@ class FetcherStage:
         x_items = list(rss_sources.get("X", {}).items())
         # Shuffle to randomize order each run if desired? (Optional, skipping for now)
         
-        for name, url in x_items:
-             self.futures.append(
-                self.restricted_pool.submit(self._fetch_x_task, url, "X", name)
+        use_x_scraper = self.config.getboolean('x_scraper', 'enabled', fallback=True)
+        logger.info(
+            f"X sources: {len(x_items)} accounts, mode={'x_scraper' if use_x_scraper else 'rsshub'}"
+        )
+        if x_items and use_x_scraper:
+            # Default path: use x_scraper for X sources (more robust than RSSHub).
+            self.futures.append(
+                self.restricted_pool.submit(self._fetch_x_sources_with_scraper, x_items)
             )
+        else:
+            for name, url in x_items:
+                self.futures.append(
+                    self.restricted_pool.submit(self._fetch_x_task, url, "X", name)
+                )
 
     def join(self):
         """Wait for all fetch tasks to complete."""
@@ -95,6 +124,56 @@ class FetcherStage:
         time.sleep(sleep_time)
         
         self._fetch_task(rss_url, source_type, name)
+
+    def _fetch_x_sources_with_scraper(self, x_items):
+        """
+        Fetch all X accounts via x_scraper in a single serial task.
+        """
+        days_lookback = self.config.getint('crawler', 'days_lookback', fallback=1)
+        x_accounts = {}
+        for name, rss_url in x_items:
+            username = ""
+            if self.config.has_section('x_accounts') and self.config.has_option('x_accounts', name):
+                username = self.config.get('x_accounts', name).strip()
+            if not username and rss_url:
+                username = rss_url.rstrip("/").split("/")[-1]
+            if username:
+                x_accounts[name] = username
+
+        if not x_accounts:
+            logger.warning("X sources are empty after account resolution; skip x_scraper fetch")
+            return
+
+        logger.info(f"🔄 [Fetching] [X/x_scraper] {len(x_accounts)} accounts ...")
+
+        try:
+            # pipeline.py is executed from native_scout/, ensure project root is importable.
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            logger.info(f"Using project_root for x_scraper import: {project_root}")
+
+            _bridge_x_scraper_loggers()
+
+            from x_scraper.scraper import XScraper
+            scraper = XScraper.from_config(self.config)
+            def on_user_done(source_name, posts):
+                if posts:
+                    logger.info(f"✅ [Fetched] [X/x_scraper] {source_name}: {len(posts)} new posts")
+                    self._save_raw_backup(posts, "X", source_name)
+                    for post in posts:
+                        self.fetch_queue.put(post)
+                else:
+                    logger.info(f"ℹ️ [Fetched] [X/x_scraper] {source_name}: 0 new posts")
+
+            scraper.fetch_all_configured_users(
+                x_accounts,
+                days_lookback=days_lookback,
+                on_user_done=on_user_done,
+            )
+        except Exception as e:
+            logger.exception(f"x_scraper fetch failed: {e}")
+            raise
 
     def _fetch_task(self, rss_url, source_type, name):
         """Core fetch logic."""
