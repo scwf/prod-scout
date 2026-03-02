@@ -14,7 +14,7 @@ import random
 import logging
 import configparser
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any, Callable
 
 from .client import XClient
 from .account_pool import AccountPool
@@ -247,6 +247,7 @@ class XScraper:
         self,
         x_accounts: Dict[str, str],
         days_lookback: int = 7,
+        on_user_done: Optional[Callable[[str, List[dict]], None]] = None,
     ) -> Dict[str, List[dict]]:
         """
         批量抓取配置中的所有 X 用户。
@@ -254,6 +255,7 @@ class XScraper:
         Args:
             x_accounts: {source_name: username} 字典 (来自 config.ini [x_accounts])
             days_lookback: 回溯天数
+            on_user_done: 每抓完一个用户后回调 (source_name, posts)，可用于即时保存
 
         Returns:
             {source_name: [post_dict, ...]} 字典
@@ -272,10 +274,14 @@ class XScraper:
                     days_lookback=days_lookback,
                 )
                 results[source_name] = posts
+                if on_user_done:
+                    on_user_done(source_name, posts)
 
             except Exception as e:
                 logger.error(f"抓取 @{username} 失败: {e}")
                 results[source_name] = []
+                if on_user_done:
+                    on_user_done(source_name, [])
 
             # 用户间延迟 (最后一个用户不需要)
             if i < total:
@@ -313,7 +319,7 @@ def _load_config() -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     config.optionxform = str  # 保持 key 大小写
     project_root = _find_project_root()
-    config_path = os.path.join(project_root, "config-test.ini")
+    config_path = os.path.join(project_root, "config.ini")
     config.read(config_path, encoding='utf-8')
     return config
 
@@ -364,20 +370,23 @@ def main():
     # 获取回溯天数
     days_lookback = config.getint('crawler', 'days_lookback', fallback=7)
 
-    # 执行抓取
-    results = scraper.fetch_all_configured_users(x_accounts, days_lookback=days_lookback)
-
-    # 保存结果
+    # 输出目录（抓完一个用户即保存，不等到全部完成）
     batch_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     project_root = _find_project_root()
     output_dir = os.path.join(project_root, 'data', f'x_scraper_{batch_ts}')
     os.makedirs(output_dir, exist_ok=True)
 
-    for source_name, posts in results.items():
+    def save_user(source_name: str, posts: List[dict]) -> None:
         if posts:
             filepath = os.path.join(output_dir, f"{source_name}.json")
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(posts, f, ensure_ascii=False, indent=2)
+            logger.info(f"已保存: {source_name}.json ({len(posts)} 条)")
+
+    # 执行抓取，每抓完一个用户立即保存
+    results = scraper.fetch_all_configured_users(
+        x_accounts, days_lookback=days_lookback, on_user_done=save_user
+    )
 
     total_posts = sum(len(v) for v in results.values())
     logger.info(f"结果已保存到: {output_dir} (共 {total_posts} 条推文)")
