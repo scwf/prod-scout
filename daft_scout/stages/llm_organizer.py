@@ -8,7 +8,7 @@ import daft
 from daft import col, DataType
 from openai import OpenAI
 
-from common import setup_logger, get_organize_concurrency
+from daft_scout.common import setup_logger, get_organize_concurrency
 
 
 logger = setup_logger("daft_llm_organizer")

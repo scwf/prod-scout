@@ -3,16 +3,15 @@ pipeline.py - main Daft pipeline for RSS crawling.
 """
 import os
 import time
-import configparser
 import daft
 from daft import col, lit
 from datetime import datetime, timezone, timedelta
 
-from common import DAYS_LOOKBACK, setup_logger
-from stages.source_fetcher import SourceFetcher
-from stages.content_enricher import ContentEnricher
-from stages.llm_organizer import LLMOrganizer
-from stages.result_writer import ResultWriter
+from daft_scout.common import DAYS_LOOKBACK, load_config, setup_logger
+from daft_scout.stages.source_fetcher import SourceFetcher
+from daft_scout.stages.content_enricher import ContentEnricher
+from daft_scout.stages.llm_organizer import LLMOrganizer
+from daft_scout.stages.result_writer import ResultWriter
 
 logger = setup_logger("daft_pipeline")
 
@@ -42,10 +41,7 @@ class DaftPipeline:
         return self.writer.write_and_stats(df)
 
 def _load_config():
-    config = configparser.ConfigParser()
-    config.optionxform = str
-    config.read(os.path.join(os.path.dirname(__file__), "..", "config-test.ini"), encoding="utf-8")
-    return config
+    return load_config()
 
 
 def _load_sources(config):

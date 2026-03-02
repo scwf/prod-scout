@@ -548,7 +548,7 @@ class TestAccountPool:
 
     def test_from_config_string(self):
         """测试从配置字符串解析"""
-        pool = AccountPool.from_config_string("tok1:ct01;tok2:ct02")
+        pool = AccountPool.from_config_string("tok1:ct01|tok2:ct02")
         assert pool.total_count == 2
 
     def test_from_config_string_single(self):
@@ -558,7 +558,7 @@ class TestAccountPool:
 
     def test_from_config_string_with_spaces(self):
         """测试带空格和空段"""
-        pool = AccountPool.from_config_string(" tok1:ct01 ; tok2:ct02 ; ; ")
+        pool = AccountPool.from_config_string(" tok1:ct01 | tok2:ct02 | | ")
         assert pool.total_count == 2
 
     def test_get_next_round_robin(self):
@@ -733,7 +733,7 @@ class TestXScraper:
         config = configparser.ConfigParser()
         config.optionxform = str
         config.add_section('x_scraper')
-        config.set('x_scraper', 'auth_credentials', 'tok1:ct01;tok2:ct02')
+        config.set('x_scraper', 'auth_credentials', 'tok1:ct01|tok2:ct02')
         config.set('x_scraper', 'max_tweets_per_user', '50')
         config.set('x_scraper', 'include_retweets', 'true')
 

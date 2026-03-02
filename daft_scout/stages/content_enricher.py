@@ -4,8 +4,8 @@ content_enricher.py - content enrichment stage for Daft pipeline.
 import json
 import daft
 from daft import col, DataType
-from common import setup_logger, get_enrich_concurrency
-from utils.content_fetcher import ContentFetcher
+from daft_scout.common import setup_logger, get_enrich_concurrency
+from daft_scout.utils.content_fetcher import ContentFetcher
 
 ENRICH_STRUCT = DataType.struct(
     {

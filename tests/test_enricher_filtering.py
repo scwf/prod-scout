@@ -5,9 +5,9 @@ import os
 from unittest.mock import MagicMock, patch
 
 # Add the project root to sys.path so we can import modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'native_scout')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from stages.content_enricher import EnricherStage
+from native_scout.stages.content_enricher import EnricherStage
 from queue import Queue
 
 class TestEnricherFiltering(unittest.TestCase):
@@ -28,7 +28,7 @@ class TestEnricherFiltering(unittest.TestCase):
         # So we mock the underlying fetch call in BlogFetcher, but keep the logic structure intact.
         # This simulates a network call returning empty content, avoiding Selenium startup.
         # The key is that LinkExtractor (which runs before this) will still extract the URL.
-        self.patcher = patch('utils.web_crawler.fetch_web_content', return_value=None)
+        self.patcher = patch('native_scout.utils.web_crawler.fetch_web_content', return_value=None)
         self.mock_fetch = self.patcher.start()
 
     def tearDown(self):

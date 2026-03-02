@@ -1,20 +1,18 @@
 ﻿import configparser
 import os
 import sys
-import tempfile
 import unittest
 from urllib.parse import urlparse
+from unittest.mock import mock_open, patch
 
 # Ensure project modules are importable.
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CRAWLER_DIR = os.path.join(ROOT_DIR, "native_scout")
-sys.path.insert(0, CRAWLER_DIR)
 sys.path.insert(0, ROOT_DIR)
 
-import pipeline
-from utils.content_fetcher import GenericVideoFetcher
-from stages.llm_organizer import organize_single_post
-from stages.result_writer import WriterStage
+from native_scout import pipeline
+from native_scout.utils.content_fetcher import GenericVideoFetcher
+from native_scout.stages.llm_organizer import organize_single_post
+from native_scout.stages.result_writer import WriterStage
 
 
 class _DummyStage:
@@ -111,37 +109,35 @@ class TestPipelineFixes(unittest.TestCase):
         )
 
     def test_writer_uses_unique_filename_suffix_for_same_event_and_date(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            writer = WriterStage(organize_queue=None, output_dir=tmp_dir, batch_timestamp="20260207_000000")
+        writer = WriterStage(organize_queue=None, output_dir="D:\\virtual-output", batch_timestamp="20260207_000000")
 
-            base = {
-                "domain": "AI",
-                "event": "Same Event",
-                "date": "2026-02-07",
-                "quality_score": 4,
-                "quality_reason": "ok",
-                "source_name": "src",
-                "category": "cat",
-                "key_info": "k",
-                "detail": "d",
-            }
+        base = {
+            "domain": "AI",
+            "event": "Same Event",
+            "date": "2026-02-07",
+            "quality_score": 4,
+            "quality_reason": "ok",
+            "source_name": "src",
+            "category": "cat",
+            "key_info": "k",
+            "detail": "d",
+        }
 
-            r1 = dict(base)
-            r1["link"] = "https://example.com/a"
-            r2 = dict(base)
-            r2["link"] = "https://example.com/b"
+        r1 = dict(base)
+        r1["link"] = "https://example.com/a"
+        r2 = dict(base)
+        r2["link"] = "https://example.com/b"
 
+        open_mock = mock_open()
+        with patch("native_scout.stages.result_writer.os.makedirs"), patch(
+            "native_scout.stages.result_writer.shutil.copy2"
+        ), patch("builtins.open", open_mock):
             writer._write_post_file(r1)
             writer._write_post_file(r2)
 
-            written = []
-            for root, _dirs, files in os.walk(tmp_dir):
-                for name in files:
-                    if name.endswith(".md"):
-                        written.append(os.path.join(root, name))
-
-            self.assertEqual(len(written), 2)
-            self.assertNotEqual(os.path.basename(written[0]), os.path.basename(written[1]))
+        written = [call.args[0] for call in open_mock.call_args_list]
+        self.assertEqual(len(written), 2)
+        self.assertNotEqual(os.path.basename(written[0]), os.path.basename(written[1]))
 
     def test_organize_single_post_uses_injected_client_and_config(self):
         fake_client = _FakeClient()
@@ -155,12 +151,19 @@ class TestPipelineFixes(unittest.TestCase):
             "date": "2026-02-07",
             "link": "https://example.com",
             "source_type": "X",
+            "source_name": "source",
             "content": "content",
             "extra_content": "",
             "extra_urls": [],
         }
 
-        result = organize_single_post(post, "source", llm_client=fake_client, llm_config=llm_config, max_retries=0)
+        result = organize_single_post(
+            post,
+            prompt_template="{title}",
+            llm_client=fake_client,
+            llm_config=llm_config,
+            max_retries=0,
+        )
 
         self.assertTrue(fake_client.called)
         self.assertEqual(fake_client.kwargs["model"], "unit-test-model")

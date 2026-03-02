@@ -10,7 +10,7 @@ import shutil
 from queue import Queue
 from datetime import datetime
 
-from common import setup_logger, save_batch_manifest
+from native_scout.common import load_config, setup_logger, save_batch_manifest
 
 logger = setup_logger("result_writer")
 
@@ -39,21 +39,12 @@ class WriterStage:
         """
         mapping = {}
         try:
-            import configparser
-            
-            # Resolve config.ini path (Assume in project root)
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            config_path = os.path.join(base_dir, "config.ini")
-            
-            if not os.path.exists(config_path):
-                logger.warning(f"Config file not found at {config_path}")
+            config = load_config()
+
+            if not config.sections():
+                logger.warning("Config file not loaded; entity mapping disabled")
                 return {}
-            
-            # Use optionxform=str to preserve key case (e.g. "OpenAI" instead of "openai")
-            config = configparser.ConfigParser()
-            config.optionxform = str
-            config.read(config_path, encoding='utf-8')
-            
+
             if 'entity_mapping' in config:
                 for entity, aliases_str in config['entity_mapping'].items():
                     aliases = [a.strip() for a in aliases_str.split(',') if a.strip()]

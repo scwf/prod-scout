@@ -22,7 +22,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from common import setup_logger
+from daft_scout.common import setup_logger
 
 
 logger = setup_logger("daft_content_fetcher")

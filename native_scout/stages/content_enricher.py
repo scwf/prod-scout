@@ -5,8 +5,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 
-from common import setup_logger
-from utils.content_fetcher import ContentFetcher
+from native_scout.common import setup_logger
+from native_scout.utils.content_fetcher import ContentFetcher
 
 logger = setup_logger("content_enricher")
 
@@ -19,7 +19,7 @@ class EnricherStage:
         self.max_workers = config.getint('crawler', 'enrich_workers', fallback=5)
         self.pool = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="Content-Enricher")
         
-        self.content_fetcher = ContentFetcher(batch_timestamp)
+        self.content_fetcher = ContentFetcher(config=config, batch_timestamp=batch_timestamp)
         self.futures = []
 
     def start(self):

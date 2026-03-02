@@ -4,14 +4,13 @@ pipeline.py - Main entry point and coordinator for the native Python pipeline.
 import os
 import time
 import queue
-import configparser
 from datetime import datetime
 
-from common import setup_logger
-from stages.source_fetcher import FetcherStage
-from stages.content_enricher import EnricherStage
-from stages.llm_organizer import OrganizerStage
-from stages.result_writer import WriterStage
+from native_scout.common import load_config, setup_logger
+from native_scout.stages.source_fetcher import FetcherStage
+from native_scout.stages.content_enricher import EnricherStage
+from native_scout.stages.llm_organizer import OrganizerStage
+from native_scout.stages.result_writer import WriterStage
 
 logger = setup_logger("pipeline")
 
@@ -66,11 +65,7 @@ class NativePipeline:
 # ================= Configuration Loading =================
 
 def _load_config():
-    config = configparser.ConfigParser()
-    config.optionxform = str
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.ini')
-    config.read(config_path, encoding='utf-8')
-    return config
+    return load_config()
 
 
 def _load_sources(config):

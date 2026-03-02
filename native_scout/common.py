@@ -1,67 +1,59 @@
 """
-common.py - 公共配置和工具函数
+common.py - shared helpers for native_scout.
 """
-import os
-import json
-import configparser
-from urllib.parse import urlparse
-from datetime import datetime
-import threading
 
-# 批次清单文件名
+import json
+import os
+import threading
+from datetime import datetime
+
+from shared.config_loader import load_ini
+
+
 MANIFEST_FILENAME = "latest_batch.json"
+
 
 def setup_logger(name: str):
     import logging
+
     logger = logging.getLogger(name)
     if not logger.handlers:
         handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     logger.setLevel(logging.INFO)
     return logger
 
+
 logger = setup_logger("common")
 
+
 def _tid():
-    """获取当前线程标识，用于日志"""
+    """Return a simple thread identifier for logs."""
     return f"[T{threading.current_thread().name.split('_')[-1]}]"
 
 
-# 加载配置文件 (config.ini，位于项目根目录)
-config = configparser.ConfigParser()
-config.read(os.path.join(os.path.dirname(__file__), '..', 'config.ini'), encoding='utf-8')
+def load_config(config_name: str = "config.ini"):
+    """Load a config file from the project root."""
+    return load_ini(__file__, os.path.join("..", config_name), preserve_case=True)
 
-# ================= 批次清单管理 =================
 
 def save_batch_manifest(output_dir, batch_id, domain_reports, stats=None):
-    """
-    保存批次清单文件
-    
-    参数:
-        output_dir: str - 输出目录路径
-        batch_id: str - 批次ID (通常是时间戳，如 20260124_123456)
-        domain_reports: dict - 领域报告映射 {领域名称: 文件名}
-        stats: dict - 统计信息 (可选)
-    
-    返回:
-        str: 清单文件的完整路径
-    """
+    """Save a batch manifest file."""
     manifest = {
         "batch_id": batch_id,
         "created_at": datetime.now().isoformat(),
         "domain_reports": domain_reports,
     }
-    
+
     if stats:
         manifest["stats"] = stats
-    
+
     manifest_path = os.path.join(output_dir, MANIFEST_FILENAME)
-    
-    with open(manifest_path, 'w', encoding='utf-8') as f:
+
+    with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
-    
-    logger.info(f"批次清单已保存: {MANIFEST_FILENAME}")
+
+    logger.info(f"Batch manifest saved: {MANIFEST_FILENAME}")
     return manifest_path
-    

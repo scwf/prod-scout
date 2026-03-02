@@ -15,7 +15,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
-from common import config, setup_logger
+from native_scout.common import load_config, setup_logger
 
 logger = setup_logger("content_fetcher")
 
@@ -134,7 +134,8 @@ class GenericVideoFetcher:
         '/tweet_video/',  # Twitter GIF -> MP4
     ]
     
-    def __init__(self, batch_timestamp: str = None):
+    def __init__(self, config=None, batch_timestamp: str = None):
+        self.config = config or load_config()
         self.batch_timestamp = batch_timestamp
     
     def _is_likely_silent_video(self, url: str) -> bool:
@@ -277,12 +278,11 @@ class GenericVideoFetcher:
             if optimize:
                 try:
                     logger.info(f"开始优化字幕 [ID: {video_id}]...")
-                    api_key = config.get('llm', 'api_key')
-                    base_url = config.get('llm', 'base_url')
-                    model = config.get('llm', 'opt_model', fallback='gpt-3.5-turbo')
+                    api_key = self.config.get('llm', 'api_key')
+                    base_url = self.config.get('llm', 'base_url')
+                    model = self.config.get('llm', 'opt_model', fallback='gpt-3.5-turbo')
                     
-                    if context:
-                        custom_prompt = f"Context: {context}"
+                    custom_prompt = f"Context: {context}" if context else ""
                     logger.info(f"优化字幕上下文信息：{custom_prompt}")
 
                     optimized_data = optimize_subtitle(
@@ -386,7 +386,7 @@ class BlogFetcher:
         """
         try:
             # 延迟导入，避免不使用时加载 Selenium
-            from utils.web_crawler import fetch_web_content
+            from native_scout.utils.web_crawler import fetch_web_content
             
             result = fetch_web_content(url)
             
@@ -422,9 +422,10 @@ class ContentFetcher:
     提供简洁的API，隐藏内部的链接提取和分类爬取逻辑
     """
     
-    def __init__(self, batch_timestamp: str = None):
+    def __init__(self, config=None, batch_timestamp: str = None):
+        self.config = config or load_config()
         self.batch_timestamp = batch_timestamp
-        self.video_fetcher = GenericVideoFetcher(batch_timestamp=batch_timestamp)
+        self.video_fetcher = GenericVideoFetcher(config=self.config, batch_timestamp=batch_timestamp)
         self.blog_fetcher = BlogFetcher()
     
     def fetch_embedded_content(self, text: str, title: str = "", source_name: str = "", optimize_video: bool = False) -> Tuple[List[EmbeddedContent], List[str]]:
