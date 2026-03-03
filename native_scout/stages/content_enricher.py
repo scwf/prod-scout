@@ -5,7 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 
-from native_scout.common import setup_logger
+from common.logging import setup_logger
 from native_scout.utils.content_fetcher import ContentFetcher
 
 logger = setup_logger("content_enricher")

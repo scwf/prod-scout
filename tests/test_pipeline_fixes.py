@@ -13,6 +13,7 @@ from native_scout import pipeline
 from native_scout.utils.content_fetcher import GenericVideoFetcher
 from native_scout.stages.llm_organizer import organize_single_post
 from native_scout.stages.result_writer import WriterStage
+from common.source_loader import load_sources
 
 
 class _DummyStage:
@@ -178,6 +179,30 @@ class TestPipelineFixes(unittest.TestCase):
 
         parsed_channel = urlparse("https://www.youtube.com/channel/abc")
         self.assertIsNone(fetcher._extract_youtube_id(parsed_channel, parsed_channel.netloc.lower()))
+
+    def test_shared_source_loader_matches_native_scout_shape(self):
+        config = configparser.ConfigParser()
+        config.optionxform = str
+        config.add_section("rsshub")
+        config.set("rsshub", "base_url", "http://rsshub.local")
+        config.add_section("weixin_accounts")
+        config.set("weixin_accounts", "WX_A", "https://wx.example/feed.xml")
+        config.set("weixin_accounts", "WX_Empty", "  ")
+        config.add_section("x_accounts")
+        config.set("x_accounts", "X_A", "openai")
+        config.add_section("youtube_channels")
+        config.set("youtube_channels", "YT_A", "channel123")
+
+        sources = load_sources(config)
+
+        self.assertEqual(
+            sources,
+            {
+                "weixin": {"WX_A": "https://wx.example/feed.xml"},
+                "X": {"X_A": "http://rsshub.local/twitter/user/openai"},
+                "YouTube": {"YT_A": "https://www.youtube.com/feeds/videos.xml?channel_id=channel123"},
+            },
+        )
 
 
 if __name__ == "__main__":

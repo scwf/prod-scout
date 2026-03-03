@@ -1,10 +1,10 @@
 """
 content_enricher.py - content enrichment stage for Daft pipeline.
 """
-import json
 import daft
 from daft import col, DataType
-from daft_scout.common import setup_logger, get_enrich_concurrency
+from common.config import load_project_ini
+from common.logging import setup_logger
 from daft_scout.utils.content_fetcher import ContentFetcher
 
 ENRICH_STRUCT = DataType.struct(
@@ -16,7 +16,13 @@ ENRICH_STRUCT = DataType.struct(
 
 logger = setup_logger("daft_content_enricher")
 
-@daft.cls(max_concurrency=get_enrich_concurrency(), use_process=False)
+
+def _get_enrich_concurrency():
+    config = load_project_ini(__file__, "config-test.ini", package_depth=1)
+    return config.getint("crawler", "enrich_workers", fallback=3)
+
+
+@daft.cls(max_concurrency=_get_enrich_concurrency(), use_process=False)
 class EnrichUDF:
     def __init__(self, config):
         self.content_fetcher = ContentFetcher(config)

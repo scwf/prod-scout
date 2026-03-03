@@ -12,10 +12,12 @@ content_fetcher.py - 嵌入内容爬取模块
 - 解耦清晰：rss_crawler.py 只需调用 ContentFetcher，不关心内部实现
 """
 import re
+import os
 from urllib.parse import urlparse, parse_qs
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
-from native_scout.common import load_config, setup_logger
+from common.config import load_project_ini
+from common.logging import setup_logger
 
 logger = setup_logger("content_fetcher")
 
@@ -135,7 +137,7 @@ class GenericVideoFetcher:
     ]
     
     def __init__(self, config=None, batch_timestamp: str = None):
-        self.config = config or load_config()
+        self.config = config or load_project_ini(__file__, "config.ini", package_depth=1, preserve_case=True)
         self.batch_timestamp = batch_timestamp
     
     def _is_likely_silent_video(self, url: str) -> bool:
@@ -243,7 +245,6 @@ class GenericVideoFetcher:
         返回:
             视频字幕文本
         """
-        import os
         import sys
         
         # 确保能导入 video_scribe

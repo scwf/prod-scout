@@ -9,7 +9,7 @@ import daft
 from daft import col, DataType
 from datetime import datetime, timezone
 
-from daft_scout.common import setup_logger
+from common.logging import setup_logger
 
 logger = setup_logger("daft_source_fetcher")
 

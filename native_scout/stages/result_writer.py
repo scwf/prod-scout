@@ -10,9 +10,30 @@ import shutil
 from queue import Queue
 from datetime import datetime
 
-from native_scout.common import load_config, setup_logger, save_batch_manifest
+from common.config import load_project_ini
+from common.logging import setup_logger
 
 logger = setup_logger("result_writer")
+
+
+def save_batch_manifest(output_dir, batch_id, domain_reports, stats=None):
+    """Save the native_scout batch manifest file."""
+    manifest = {
+        "batch_id": batch_id,
+        "created_at": datetime.now().isoformat(),
+        "domain_reports": domain_reports,
+    }
+
+    if stats:
+        manifest["stats"] = stats
+
+    manifest_path = os.path.join(output_dir, "latest_batch.json")
+
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    logger.info("Batch manifest saved: latest_batch.json")
+    return manifest_path
 
 class WriterStage:
     def __init__(self, organize_queue: Queue, output_dir, batch_timestamp):
@@ -39,7 +60,7 @@ class WriterStage:
         """
         mapping = {}
         try:
-            config = load_config()
+            config = load_project_ini(__file__, "config.ini", package_depth=1, preserve_case=True)
 
             if not config.sections():
                 logger.warning("Config file not loaded; entity mapping disabled")

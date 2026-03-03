@@ -7,13 +7,16 @@ import daft
 from daft import col, lit
 from datetime import datetime, timezone, timedelta
 
-from daft_scout.common import DAYS_LOOKBACK, load_config, setup_logger
+from common.config import load_project_ini
+from common.logging import setup_logger
 from daft_scout.stages.source_fetcher import SourceFetcher
 from daft_scout.stages.content_enricher import ContentEnricher
 from daft_scout.stages.llm_organizer import LLMOrganizer
 from daft_scout.stages.result_writer import ResultWriter
+from common.source_loader import load_sources
 
 logger = setup_logger("daft_pipeline")
+DAYS_LOOKBACK = 7
 
 class DaftPipeline:
     def __init__(self, config, batch_timestamp, output_dir):
@@ -41,43 +44,11 @@ class DaftPipeline:
         return self.writer.write_and_stats(df)
 
 def _load_config():
-    return load_config()
+    return load_project_ini(__file__, "config-test.ini", package_depth=0, preserve_case=True)
 
 
 def _load_sources(config):
-    def load_weixin_accounts_from_config():
-        weixin_accounts = {}
-        if config.has_section("weixin_accounts"):
-            for display_name in config.options("weixin_accounts"):
-                rss_url = config.get("weixin_accounts", display_name).strip()
-                if rss_url:
-                    weixin_accounts[display_name] = rss_url
-        return weixin_accounts
-
-    def load_x_accounts_from_config():
-        x_accounts = {}
-        rsshub_base_url = config.get("rsshub", "base_url", fallback="http://127.0.0.1:1200")
-        if config.has_section("x_accounts"):
-            for display_name in config.options("x_accounts"):
-                account_id = config.get("x_accounts", display_name).strip()
-                if account_id:
-                    x_accounts[display_name] = f"{rsshub_base_url}/twitter/user/{account_id}"
-        return x_accounts
-
-    def load_youtube_channels_from_config():
-        youtube_channels = {}
-        if config.has_section("youtube_channels"):
-            for display_name in config.options("youtube_channels"):
-                channel_id = config.get("youtube_channels", display_name).strip()
-                if channel_id:
-                    youtube_channels[display_name] = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-        return youtube_channels
-
-    return {
-        "weixin": load_weixin_accounts_from_config(),
-        "X": load_x_accounts_from_config(),
-        "YouTube": load_youtube_channels_from_config(),
-    }
+    return load_sources(config)
 
 
 if __name__ == "__main__":

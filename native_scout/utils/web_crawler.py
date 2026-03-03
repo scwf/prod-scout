@@ -20,7 +20,7 @@ import re
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from native_scout.common import setup_logger
+from common.logging import setup_logger
 
 logger = setup_logger("web_crawler")
 

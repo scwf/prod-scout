@@ -4,11 +4,13 @@ llm_organizer.py - LLM organizing stage for Daft pipeline.
 import json
 import time
 import os
+import threading
 import daft
 from daft import col, DataType
 from openai import OpenAI
 
-from daft_scout.common import setup_logger, get_organize_concurrency
+from common.config import load_project_ini
+from common.logging import setup_logger
 
 
 logger = setup_logger("daft_llm_organizer")
@@ -29,7 +31,13 @@ ORGANIZED_STRUCT = DataType.struct(
 def _tid():
     return f"[T{threading.current_thread().name.split('_')[-1]}]"
 
-@daft.cls(max_concurrency=get_organize_concurrency(), use_process=False)
+
+def _get_organize_concurrency():
+    config = load_project_ini(__file__, "config-test.ini", package_depth=1)
+    return config.getint("crawler", "organize_workers", fallback=5)
+
+
+@daft.cls(max_concurrency=_get_organize_concurrency(), use_process=False)
 class OrganizeUDF:
     def __init__(self, config):
         self.client = OpenAI(

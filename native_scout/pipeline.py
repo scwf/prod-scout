@@ -6,11 +6,13 @@ import time
 import queue
 from datetime import datetime
 
-from native_scout.common import load_config, setup_logger
+from common.config import load_project_ini
+from common.logging import setup_logger
 from native_scout.stages.source_fetcher import FetcherStage
 from native_scout.stages.content_enricher import EnricherStage
 from native_scout.stages.llm_organizer import OrganizerStage
 from native_scout.stages.result_writer import WriterStage
+from common.source_loader import load_sources
 
 logger = setup_logger("pipeline")
 
@@ -65,43 +67,11 @@ class NativePipeline:
 # ================= Configuration Loading =================
 
 def _load_config():
-    return load_config()
+    return load_project_ini(__file__, "config.ini", package_depth=0, preserve_case=True)
 
 
 def _load_sources(config):
-    def load_weixin():
-        accs = {}
-        if config.has_section('weixin_accounts'):
-            for k in config.options('weixin_accounts'):
-                v = config.get('weixin_accounts', k).strip()
-                if v:
-                    accs[k] = v
-        return accs
-
-    def load_x():
-        accs = {}
-        rsshub_base = config.get('rsshub', 'base_url', fallback='http://127.0.0.1:1200')
-        if config.has_section('x_accounts'):
-            for k in config.options('x_accounts'):
-                v = config.get('x_accounts', k).strip()
-                if v:
-                    accs[k] = f"{rsshub_base}/twitter/user/{v}"
-        return accs
-
-    def load_youtube():
-        accs = {}
-        if config.has_section('youtube_channels'):
-            for k in config.options('youtube_channels'):
-                v = config.get('youtube_channels', k).strip()
-                if v:
-                    accs[k] = f"https://www.youtube.com/feeds/videos.xml?channel_id={v}"
-        return accs
-
-    return {
-        "weixin": load_weixin(),
-        "X": load_x(),
-        "YouTube": load_youtube(),
-    }
+    return load_sources(config)
 
 
 if __name__ == "__main__":

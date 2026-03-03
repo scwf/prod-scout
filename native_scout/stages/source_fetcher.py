@@ -13,7 +13,7 @@ from dateutil import parser as date_parser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 
-from native_scout.common import setup_logger
+from common.logging import setup_logger
 
 logger = setup_logger("source_fetcher")
 

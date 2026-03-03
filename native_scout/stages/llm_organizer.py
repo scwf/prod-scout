@@ -7,7 +7,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from openai import OpenAI
-from native_scout.common import setup_logger, _tid
+from common.logging import setup_logger
 
 logger = setup_logger("llm_organizer")
 
