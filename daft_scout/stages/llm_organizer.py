@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from common.config import load_project_ini
 from common.logging import setup_logger
+from common.prompt_loader import load_prompt_template
 
 
 logger = setup_logger("daft_llm_organizer")
@@ -48,27 +49,7 @@ class OrganizeUDF:
         self.prompt_template = self._load_prompt_template(config)
 
     def _load_prompt_template(self, config):
-        try:
-            config_path = config.get("llm", "prompt_template", fallback="prompts/organizer_prompt.md")
-            
-            # Resolve path (relative to project root)
-            # daft_scout/stages/llm_organizer.py -> ... -> root
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            target_path = config_path
-            
-            if not os.path.isabs(config_path):
-                target_path = os.path.join(project_root, config_path)
-            
-            if os.path.exists(target_path):
-                with open(target_path, "r", encoding="utf-8") as f:
-                    logger.info(f"Loaded prompt template from {target_path}")
-                    return f.read()
-            else:
-                logger.error(f"Prompt file not found at {target_path}")
-                return ""
-        except Exception as e:
-            logger.error(f"Failed to load prompt template: {e}")
-            return ""
+        return load_prompt_template(config, __file__, logger)
 
     @daft.method(return_dtype=ORGANIZED_STRUCT, unnest=True)
     def __call__(

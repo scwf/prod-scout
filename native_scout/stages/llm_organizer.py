@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from openai import OpenAI
 from common.logging import setup_logger
+from common.prompt_loader import load_prompt_template
 
 logger = setup_logger("llm_organizer")
 
@@ -142,27 +143,7 @@ class OrganizerStage:
 
     def _load_prompt_template(self):
         """Load prompt template from file."""
-        try:
-            config_path = self.config.get('llm', 'prompt_template', fallback='prompts/organizer_prompt.md')
-            
-            # Resolve path
-            target_path = config_path
-            if not os.path.isabs(config_path):
-                 # Resolve relative to project root (assuming native_scout/stages is CWD or handled by pipeline pathing logic?)
-                 # Better to rely on __file__ relative path anchor
-                 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                 target_path = os.path.join(project_root, config_path)
-            
-            if os.path.exists(target_path):
-                with open(target_path, 'r', encoding='utf-8') as f:
-                    logger.info(f"Loaded prompt template from {target_path}")
-                    return f.read()
-            else:
-                logger.error(f"❌ Prompt file not found at {target_path}")
-                return ""
-        except Exception as e:
-            logger.error(f"❌ Failed to load prompt template: {e}")
-            return ""
+        return load_prompt_template(self.config, __file__, logger)
 
     def _load_entity_list(self):
         """Load entity names from config [entity_mapping] section as comma-separated string."""

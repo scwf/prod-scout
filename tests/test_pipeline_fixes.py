@@ -13,6 +13,7 @@ from native_scout import pipeline
 from native_scout.utils.content_fetcher import GenericVideoFetcher
 from native_scout.stages.llm_organizer import organize_single_post
 from native_scout.stages.result_writer import WriterStage
+from common.prompt_loader import load_prompt_template
 from common.source_loader import load_sources
 
 
@@ -203,6 +204,15 @@ class TestPipelineFixes(unittest.TestCase):
                 "YouTube": {"YT_A": "https://www.youtube.com/feeds/videos.xml?channel_id=channel123"},
             },
         )
+
+    def test_shared_prompt_loader_reads_relative_prompt_from_project_root(self):
+        config = configparser.ConfigParser()
+        config.add_section("llm")
+        config.set("llm", "prompt_template", "prompts/organizer_prompt.md")
+
+        content = load_prompt_template(config, __file__, pipeline.logger)
+
+        self.assertTrue(content)
 
 
 if __name__ == "__main__":
