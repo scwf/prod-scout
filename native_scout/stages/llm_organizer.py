@@ -109,6 +109,9 @@ def organize_single_post(post, prompt_template, llm_client, llm_config, entity_l
         return None
 
     # 补全基础字段
+    if 'domain' in result and isinstance(result['domain'], str):
+        result['domain'] = result['domain'].replace(' ', '')  # 修复LLM可能在分类中夹带空格的问题
+
     result['date'] = post.get('date', '')
     result['link'] = post.get('link', '')
     result['source_name'] = post.get('source_name', '')

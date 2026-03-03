@@ -164,6 +164,10 @@ class OrganizeUDF:
             logger.info(f"{_tid()} LLM returned skip: {result}")
             return None
 
+        # Fix potential space issues in domain name from LLM
+        if 'domain' in result and isinstance(result['domain'], str):
+            result['domain'] = result['domain'].replace(' ', '')
+
         # Redundant fields are no longer injected here
         return result
 
