@@ -4,6 +4,7 @@
 
 # 本地运行脚本
 *.ps1
+!run_native_scout.ps1
 
 # Python
 __pycache__/
